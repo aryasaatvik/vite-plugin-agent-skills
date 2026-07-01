@@ -40,6 +40,7 @@
     "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly --noEmit false",
     "prepack": "bun run build",
     "package:smoke": "bun run build && npm pack --dry-run",
+    "release": "bun run typecheck && bun run test && bun run package:smoke && npm publish",
     "dev": "tsdown --watch --ignore-watch .turbo",
     "typecheck": "tsc --noEmit",
     "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
