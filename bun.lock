@@ -16,6 +16,16 @@
         "vitest": "^4.1.8",
       },
     },
+    "examples/basic": {
+      "name": "@vite-plugin-agent-skills/basic-example",
+      "version": "0.0.0",
+      "dependencies": {
+        "vite-plugin-agent-skills": "workspace:*",
+      },
+      "devDependencies": {
+        "vite": "^8.0.0",
+      },
+    },
     "packages/vite-plugin-agent-skills": {
       "name": "vite-plugin-agent-skills",
       "version": "0.0.0",
@@ -239,6 +249,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.1-rc", "", { "os": "win32", "cpu": "arm64" }, "sha512-KzXzFSXZOm7zvEt2Aw0MsB2LbTL88znAiVqTDNAOHdlEb7brgmUQh/X2wM/8Be+N0fjEqWKl65cBKNwpWEbJiw=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.1-rc", "", { "os": "win32", "cpu": "x64" }, "sha512-98R3+OqDr/r0/PLWEoXu88AE0lGVLNd335Ew8ONgzK1JWkNs4ou/5BGt3Or1ij4iXjH+c7PRL+jFjCbtWze+EA=="],
+
+    "@vite-plugin-agent-skills/basic-example": ["@vite-plugin-agent-skills/basic-example@workspace:examples/basic"],
 
     "@vitest/expect": ["@vitest/expect@4.1.9", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "@types/chai": "^5.2.2", "@vitest/spy": "4.1.9", "@vitest/utils": "4.1.9", "chai": "^6.2.2", "tinyrainbow": "^3.1.0" } }, "sha512-vl/rYsUKcBr3SnQn166+XR5ZQcgMx3DQhFWdfli/cWpLnLUmbxZvyrJZotLFUryib+LtArYMSTJ5RbQ57ZqrlA=="],
 

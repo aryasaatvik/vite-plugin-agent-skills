@@ -30,6 +30,7 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
   const state = {
     markdown: markdownImportConfig(options.markdown),
     skill: skillImportConfig(options.skill),
+    skillModules: new Map<string, string>(),
     viteRoot: "",
   };
 
@@ -98,6 +99,21 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
 
       return null;
     },
+    hotUpdate(update) {
+      const changedPath = normalizePath(path.resolve(update.file));
+      const modules = [];
+
+      for (const [directory, moduleId] of state.skillModules) {
+        if (!isWithinDirectory(changedPath, directory)) continue;
+        const module = this.environment.moduleGraph.getModuleById(moduleId);
+        if (module === undefined) continue;
+        this.environment.moduleGraph.invalidateModule(module);
+        state.skillModules.delete(directory);
+        modules.push(module);
+      }
+
+      return modules.length > 0 ? modules : undefined;
+    },
     async load(id) {
       if (id.startsWith(virtualModules.markdownPrefix)) {
         const markdownPath = id.slice(virtualModules.markdownPrefix.length);
@@ -109,13 +125,25 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
         if (!state.skill.enabled) return null;
 
         const skillPath = id.slice(virtualModules.skillPrefix.length);
+        const skillDirectory = normalizePath(path.dirname(skillPath));
+        state.skillModules.set(skillDirectory, id);
+        this.addWatchFile(skillDirectory);
         this.addWatchFile(skillPath);
+        this.addWatchFile(normalizePath(path.join(skillDirectory, ".gitignore")));
+        if (state.viteRoot) {
+          this.addWatchFile(normalizePath(path.join(state.viteRoot, ".gitignore")));
+        }
         const manifest = await buildSkillManifest({
           skillPath,
           viteRoot: state.viteRoot,
           config: state.skill,
           warn: (message) => this.warn(message),
         });
+        for (const skill of manifest.skills) {
+          for (const resource of skill.resources) {
+            this.addWatchFile(normalizePath(path.join(skillDirectory, resource.path)));
+          }
+        }
         return skillModuleCode(manifest, state.skill);
       }
 
@@ -126,6 +154,10 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
 
 function containsImportAttribute(code: string): boolean {
   return /\bwith\s*\{/.test(code);
+}
+
+function isWithinDirectory(filePath: string, directory: string): boolean {
+  return filePath === directory || filePath.startsWith(`${directory}/`);
 }
 
 interface ImportReplacement {
