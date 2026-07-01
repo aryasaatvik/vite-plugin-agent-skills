@@ -37,7 +37,6 @@
     "js-yaml": "^5.2.0"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
     "vite": "^8.0.0"
   },
   "peerDependencies": {
