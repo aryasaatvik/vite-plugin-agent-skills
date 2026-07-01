@@ -3,22 +3,18 @@ export interface MarkdownImportOptions {
   rejectSkillMarkdown?: boolean;
 }
 
-export type MarkdownImportConfig =
-  | { enabled: false }
-  | {
-      enabled: true;
-      attribute: string;
-      rejectSkillMarkdown: boolean;
-    };
+export interface MarkdownImportConfig {
+  attribute: string;
+  rejectSkillMarkdown: boolean;
+}
 
 export function markdownImportConfig(
   options: boolean | MarkdownImportOptions | undefined,
-): MarkdownImportConfig {
-  if (options === false) return { enabled: false };
-  const configured = options === true || options === undefined ? {} : options;
+): MarkdownImportConfig | undefined {
+  if (options === false) return undefined;
+  const configured = typeof options === "object" ? options : {};
 
   return {
-    enabled: true,
     attribute: configured.attribute ?? "markdown",
     rejectSkillMarkdown: configured.rejectSkillMarkdown ?? true,
   };

@@ -15,28 +15,24 @@ export interface SkillImportOptions {
   resources?: SkillResourceOptions;
 }
 
-export type SkillImportConfig =
-  | { enabled: false }
-  | {
-      enabled: true;
-      attribute: string;
-      mode: "skillSource" | "manifest";
-      runtime: {
-        importFrom: string;
-        fromManifest: string;
-      };
-      validate: "strict" | "warn";
-      resources: SkillResourceConfig;
-    };
+export interface SkillImportConfig {
+  attribute: string;
+  mode: "skillSource" | "manifest";
+  runtime: {
+    importFrom: string;
+    fromManifest: string;
+  };
+  validate: "strict" | "warn";
+  resources: SkillResourceConfig;
+}
 
 export function skillImportConfig(
   options: boolean | SkillImportOptions | undefined,
-): SkillImportConfig {
-  if (options === false) return { enabled: false };
-  const configured = options === true || options === undefined ? {} : options;
+): SkillImportConfig | undefined {
+  if (options === false) return undefined;
+  const configured = typeof options === "object" ? options : {};
 
   return {
-    enabled: true,
     attribute: configured.attribute ?? "skill",
     mode: configured.mode ?? "skillSource",
     runtime: {

@@ -1,21 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeSkillModuleId, type VirtualModuleIds } from "../src/virtual-modules";
+import {
+  decodeSkillModuleId,
+  encodedSkillModulePrefix,
+  skillModulePrefix,
+} from "../src/virtual-modules";
 
 describe("virtual module IDs", () => {
-  const ids = {
-    skillPrefix: "\0vite-plugin-agent-skills:skill:test:",
-    encodedSkillPrefix: "__x00__vite-plugin-agent-skills:skill:test:",
-  } satisfies Pick<VirtualModuleIds, "skillPrefix" | "encodedSkillPrefix">;
+  it("passes through raw virtual skill IDs", () => {
+    expect(decodeSkillModuleId(`${skillModulePrefix}/tmp/skill/SKILL.md`)).toBe(
+      `${skillModulePrefix}/tmp/skill/SKILL.md`,
+    );
+  });
 
   it("decodes Vite's encoded virtual skill IDs", () => {
-    expect(decodeSkillModuleId(`${ids.encodedSkillPrefix}/tmp/skill/SKILL.md`, ids)).toBe(
-      `${ids.skillPrefix}/tmp/skill/SKILL.md`,
+    expect(decodeSkillModuleId(`${encodedSkillModulePrefix}/tmp/skill/SKILL.md`)).toBe(
+      `${skillModulePrefix}/tmp/skill/SKILL.md`,
     );
   });
 
   it("ignores embedded encoded prefixes", () => {
-    expect(decodeSkillModuleId(`prefix-${ids.encodedSkillPrefix}/tmp/skill/SKILL.md`, ids)).toBe(
+    expect(decodeSkillModuleId(`prefix-${encodedSkillModulePrefix}/tmp/skill/SKILL.md`)).toBe(
       undefined,
     );
   });

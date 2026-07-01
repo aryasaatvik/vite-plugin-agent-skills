@@ -6,16 +6,14 @@ import { skillImportConfig } from "../src/skill-import";
 describe("import config", () => {
   it("keeps markdown defaults local to markdown imports", () => {
     expect(markdownImportConfig(undefined)).toEqual({
-      enabled: true,
       attribute: "markdown",
       rejectSkillMarkdown: true,
     });
-    expect(markdownImportConfig(false)).toEqual({ enabled: false });
+    expect(markdownImportConfig(false)).toBeUndefined();
   });
 
   it("keeps skill defaults local to skill imports", () => {
     expect(skillImportConfig({ mode: "manifest" })).toEqual({
-      enabled: true,
       attribute: "skill",
       mode: "manifest",
       runtime: {
@@ -33,5 +31,6 @@ describe("import config", () => {
         },
       },
     });
+    expect(skillImportConfig(false)).toBeUndefined();
   });
 });

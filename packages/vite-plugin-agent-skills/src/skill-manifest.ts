@@ -4,9 +4,8 @@ import * as path from "node:path";
 
 import { normalizePath } from "vite";
 
-import { pluginError } from "./errors";
-import { collectSkillDirectoryFiles } from "./skill-directory";
-import { parseSkillMarkdown, type ParsedSkillMarkdown } from "./skill-frontmatter";
+import { collectSkillDirectoryFiles, type SkillDirectoryFile } from "./skill-directory";
+import { parseSkillMarkdown } from "./skill-frontmatter";
 import type { SkillImportConfig } from "./skill-import";
 
 export interface SkillManifestResource {
@@ -38,7 +37,7 @@ export interface SkillManifest {
 export interface BuildSkillManifestOptions {
   skillPath: string;
   viteRoot: string;
-  config: Exclude<SkillImportConfig, { enabled: false }>;
+  config: SkillImportConfig;
   warn?: (message: string) => void;
 }
 
@@ -91,34 +90,30 @@ export async function buildSkillManifest({
 }: BuildSkillManifestOptions): Promise<SkillManifest> {
   const skillDirectory = path.dirname(skillPath);
   const rawContent = await fs.readFile(skillPath, "utf8");
-  const parseOptions = {
+  const parsed = parseSkillMarkdown(rawContent, {
     directoryName: path.basename(skillDirectory),
     path: skillPath,
     validate: config.validate,
+    warn,
+  });
+  const files = await collectSkillDirectoryFiles({
+    skillDirectory,
+    viteRoot,
+    resources: config.resources,
+    warn,
+  });
+  const resources = await Promise.all(files.map(skillManifestResource));
+
+  const entry: SkillManifestEntry = {
+    name: parsed.name,
+    description: parsed.description,
+    body: parsed.body,
+    compatibility: parsed.compatibility,
+    license: parsed.license,
+    allowedTools: parsed.allowedTools,
+    metadata: parsed.metadata,
+    resources,
   };
-  const parsed = parseSkillMarkdown(
-    rawContent,
-    warn === undefined ? parseOptions : { ...parseOptions, warn },
-  );
-  const resources = await Promise.all(
-    (
-      await collectSkillDirectoryFiles(
-        warn === undefined
-          ? {
-              skillDirectory,
-              viteRoot,
-              resources: config.resources,
-            }
-          : {
-              skillDirectory,
-              viteRoot,
-              resources: config.resources,
-              warn,
-            },
-      )
-    ).map(async (file) => skillManifestResource(file.path, file.absolutePath, file.size)),
-  );
-  const entry = skillManifestEntry(parsed, resources);
   const fingerprint = skillFingerprint(entry);
 
   return {
@@ -128,18 +123,13 @@ export async function buildSkillManifest({
   };
 }
 
-export function skillModuleCode(
-  manifest: SkillManifest,
-  config: Exclude<SkillImportConfig, { enabled: false }>,
-): string {
+export function skillModuleCode(manifest: SkillManifest, config: SkillImportConfig): string {
   const manifestCode = `const manifest = ${JSON.stringify(manifest)};`;
   if (config.mode === "manifest") return `${manifestCode}\nexport default manifest;\n`;
 
   const fromManifest = config.runtime.fromManifest;
   if (!isJavaScriptIdentifier(fromManifest)) {
-    throw pluginError(
-      `runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`,
-    );
+    throw new Error(`runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`);
   }
 
   return [
@@ -150,46 +140,23 @@ export function skillModuleCode(
   ].join("\n");
 }
 
-async function skillManifestResource(
-  resourcePath: string,
-  absolutePath: string,
-  size: number,
-): Promise<SkillManifestResource> {
-  const bytes = await fs.readFile(absolutePath);
-  const encoding = resourceEncoding(resourcePath);
-  const resource: SkillManifestResource = {
-    path: resourcePath,
-    kind: resourceKind(resourcePath),
-    size,
+async function skillManifestResource(file: SkillDirectoryFile): Promise<SkillManifestResource> {
+  const bytes = await fs.readFile(file.absolutePath);
+  const encoding = resourceEncoding(file.path);
+  return {
+    path: file.path,
+    kind: resourceKind(file.path),
+    size: file.size,
     encoding,
+    mimeType: mimeTypes.get(extensionOf(file.path)),
     content: encoding === "base64" ? bytes.toString("base64") : bytes.toString("utf8"),
   };
-  const mimeType = resourceMimeType(resourcePath);
-  if (mimeType !== undefined) resource.mimeType = mimeType;
-  return resource;
 }
 
 function skillFingerprint(entry: SkillManifestEntry): string {
   const hash = createHash("sha256");
   hash.update(JSON.stringify(entry));
   return hash.digest("hex");
-}
-
-function skillManifestEntry(
-  parsed: ParsedSkillMarkdown,
-  resources: SkillManifestResource[],
-): SkillManifestEntry {
-  const entry: SkillManifestEntry = {
-    name: parsed.name,
-    description: parsed.description,
-    body: parsed.body,
-    resources,
-  };
-  if (parsed.compatibility !== undefined) entry.compatibility = parsed.compatibility;
-  if (parsed.license !== undefined) entry.license = parsed.license;
-  if (parsed.allowedTools !== undefined) entry.allowedTools = parsed.allowedTools;
-  if (parsed.metadata !== undefined) entry.metadata = parsed.metadata;
-  return entry;
 }
 
 function isJavaScriptIdentifier(value: string): boolean {
@@ -204,15 +171,13 @@ function resourceKind(resourcePath: string): "reference" | "script" | "asset" | 
 }
 
 function resourceEncoding(resourcePath: string): "text" | "base64" {
-  return textExtensions.has(extensionOf(resourcePath)) ? "text" : "base64";
-}
-
-function resourceMimeType(resourcePath: string): string | undefined {
-  return mimeTypes.get(extensionOf(resourcePath));
+  if (textExtensions.has(extensionOf(resourcePath))) return "text";
+  return "base64";
 }
 
 function extensionOf(resourcePath: string): string {
   const file = normalizePath(resourcePath).split("/").at(-1) ?? resourcePath;
   const index = file.lastIndexOf(".");
-  return index === -1 ? "" : file.slice(index).toLowerCase();
+  if (index === -1) return "";
+  return file.slice(index).toLowerCase();
 }

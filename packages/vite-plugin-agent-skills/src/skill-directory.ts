@@ -4,8 +4,6 @@ import * as path from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { normalizePath } from "vite";
 
-import { pluginError, pluginMessage } from "./errors";
-
 export interface SkillResourceOptions {
   gitignore?: boolean;
   rejectSecrets?: boolean;
@@ -44,15 +42,6 @@ interface GitignoreScope {
   matcher: Ignore;
 }
 
-interface CollectFilesContext {
-  directory: string;
-  root: string;
-  scopes: GitignoreScope[];
-  config: SkillResourceConfig;
-  files: SkillDirectoryFile[];
-  warn: ((message: string) => void) | undefined;
-}
-
 const sensitiveDirectoryNames = new Set([".aws", ".gnupg", ".ssh"]);
 const sensitiveFileNames = new Set([
   ".dev.vars",
@@ -88,61 +77,61 @@ export async function collectSkillDirectoryFiles({
   const config = skillResourceConfig(resources);
   const root = normalizeAbsolutePath(viteRoot);
   const directory = normalizeAbsolutePath(skillDirectory);
-  const scopes = config.gitignore ? await gitignoreScopesForAncestors({ root, directory }) : [];
-  const files: SkillDirectoryFile[] = [];
+  const scopes: GitignoreScope[] = [];
+  if (config.gitignore) {
+    scopes.push(...(await gitignoreScopesForAncestors({ root, directory })));
+  }
 
-  await collectFiles({ directory, root: directory, scopes, config, files, warn });
+  const files = await collectFiles({ directory, root: directory, scopes, config, warn });
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 async function collectFiles({
   directory,
   root,
-  scopes,
+  scopes: inheritedScopes,
   config,
-  files,
   warn,
-}: CollectFilesContext): Promise<void> {
-  const currentScopes = config.gitignore
-    ? [...scopes, ...(await gitignoreScopesForDirectory(directory))]
-    : scopes;
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+}: {
+  directory: string;
+  root: string;
+  scopes: GitignoreScope[];
+  config: SkillResourceConfig;
+  warn?: (message: string) => void;
+}): Promise<SkillDirectoryFile[]> {
+  const scopes = [...inheritedScopes];
+  if (config.gitignore) {
+    scopes.push(...(await gitignoreScopesForDirectory(directory)));
+  }
 
-  await Promise.all(
-    entries.map(async (entry) => {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const collected = await Promise.all(
+    entries.map(async (entry): Promise<SkillDirectoryFile[]> => {
       const absolutePath = normalizeAbsolutePath(path.join(directory, entry.name));
       const relativePath = normalizePath(path.relative(root, absolutePath));
-      if (isGitignored(absolutePath, entry.isDirectory(), currentScopes)) return;
+      if (isGitignored(absolutePath, entry.isDirectory(), scopes)) return [];
 
       if (entry.isSymbolicLink()) {
         if (config.rejectSymlinks) {
-          throw pluginError(
+          throw new Error(
             `Skill directory "${root}" contains symbolic link "${relativePath}", which cannot be packaged.`,
           );
         }
-        return;
+        return [];
       }
 
       if (entry.isDirectory()) {
         if (config.rejectSecrets && sensitiveDirectoryNames.has(entry.name.toLowerCase())) {
-          throw pluginError(
+          throw new Error(
             `Skill directory "${root}" contains sensitive directory "${relativePath}", which cannot be packaged.`,
           );
         }
-        await collectFiles({
-          directory: absolutePath,
-          root,
-          scopes: currentScopes,
-          config,
-          files,
-          warn,
-        });
-        return;
+        return collectFiles({ directory: absolutePath, root, scopes, config, warn });
       }
 
-      if (!entry.isFile() || relativePath === "SKILL.md" || entry.name === ".gitignore") return;
+      if (!entry.isFile() || relativePath === "SKILL.md" || entry.name === ".gitignore") return [];
       if (config.rejectSecrets && isSensitiveFile(entry.name)) {
-        throw pluginError(
+        throw new Error(
           `Skill directory "${root}" contains sensitive file "${relativePath}", which cannot be packaged.`,
         );
       }
@@ -150,12 +139,14 @@ async function collectFiles({
       const stat = await fs.stat(absolutePath);
       if (stat.size > config.largeFile.bytes) {
         const message = `Skill resource "${relativePath}" is ${stat.size} bytes and will be embedded in the Vite bundle.`;
-        if (config.largeFile.action === "error") throw pluginError(message);
-        if (config.largeFile.action === "warn") warn?.(pluginMessage(message));
+        if (config.largeFile.action === "error") throw new Error(message);
+        if (config.largeFile.action === "warn") warn?.(message);
       }
-      files.push({ path: relativePath, absolutePath, size: stat.size });
+      return [{ path: relativePath, absolutePath, size: stat.size }];
     }),
   );
+
+  return collected.flat();
 }
 
 async function gitignoreScopesForAncestors({
@@ -165,9 +156,8 @@ async function gitignoreScopesForAncestors({
   root: string;
   directory: string;
 }): Promise<GitignoreScope[]> {
-  const scopes: GitignoreScope[] = [];
   const rootRelativeDirectory = normalizePath(path.relative(root, directory));
-  if (rootRelativeDirectory.startsWith("..")) return scopes;
+  if (rootRelativeDirectory.startsWith("..")) return [];
 
   const directories = [root];
   if (rootRelativeDirectory) {
@@ -178,8 +168,8 @@ async function gitignoreScopesForAncestors({
     }
   }
 
-  scopes.push(...(await Promise.all(directories.map(gitignoreScopesForDirectory))).flat());
-  return scopes;
+  const scopes = await Promise.all(directories.map(gitignoreScopesForDirectory));
+  return scopes.flat();
 }
 
 async function gitignoreScopesForDirectory(directory: string): Promise<GitignoreScope[]> {

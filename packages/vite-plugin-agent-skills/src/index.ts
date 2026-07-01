@@ -1,20 +1,28 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
-import { normalizePath, type Plugin, transformWithOxc } from "vite";
+import { prefixRegex } from "@rolldown/pluginutils";
+import MagicString from "magic-string";
+import { normalizePath, parseSync, type EnvironmentModuleNode, type Plugin } from "vite";
 
 import {
   assertNoDynamicSkillImports,
   collectAttributedImports,
   isSkillMarkdownPath,
+  markdownImportReplacements,
+  skillImportReplacements,
   stripQueryAndHash,
-  type ModuleAst,
+  type ImportReplacement,
 } from "./attributed-imports";
-import { pluginError, pluginName } from "./errors";
 import { markdownImportConfig, type MarkdownImportOptions } from "./markdown-import";
 import { skillImportConfig, type SkillImportOptions } from "./skill-import";
 import { buildSkillManifest, skillModuleCode } from "./skill-manifest";
-import { createVirtualModuleIds, decodeSkillModuleId } from "./virtual-modules";
+import {
+  decodeSkillModuleId,
+  encodedSkillModulePrefix,
+  markdownModulePrefix,
+  skillModulePrefix,
+} from "./virtual-modules";
 
 export interface AgentSkillsPluginOptions {
   markdown?: boolean | MarkdownImportOptions;
@@ -25,263 +33,142 @@ export type { MarkdownImportOptions } from "./markdown-import";
 export type { SkillImportOptions } from "./skill-import";
 export type { SkillDirectoryFile, SkillResourceOptions } from "./skill-directory";
 
+const scriptFilePattern = /\.[cm]?[jt]sx?(?:\?|$)/i;
+const importAttributePattern = /\bwith\s*\{/;
+const skillMarkdownPattern = /(?:^|\/)SKILL\.md(?:[?#]|$)/;
+
 export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
-  const virtualModules = createVirtualModuleIds();
-  const state = {
-    markdown: markdownImportConfig(options.markdown),
-    skill: skillImportConfig(options.skill),
-    skillModules: new Map<string, string>(),
-    viteRoot: "",
-  };
+  const markdown = markdownImportConfig(options.markdown);
+  const skill = skillImportConfig(options.skill);
+  const skillModulesByDirectory = new Map<string, string>();
+  let viteRoot = "";
 
   return {
-    name: pluginName,
+    name: "vite-plugin-agent-skills",
     enforce: "pre",
     configResolved(config) {
-      state.viteRoot = config.root;
+      viteRoot = config.root;
     },
-    async transform(code, id) {
-      if (!/\.[cm]?[jt]sx?(?:\?|$)/i.test(id)) return null;
+    transform: {
+      filter: {
+        id: scriptFilePattern,
+        code: [importAttributePattern, /SKILL\.md/],
+      },
+      async handler(code, id) {
+        const importerPath = stripQueryAndHash(id);
+        const parsed = parseSync(importerPath, code);
+        if (parsed.errors.length > 0) return null;
+        if (skill) assertNoDynamicSkillImports(parsed.program);
 
-      const importerPath = id.split("?")[0] ?? id;
-      if (!containsImportAttribute(code) && !(state.skill.enabled && code.includes("SKILL.md"))) {
+        const replacements: ImportReplacement[] = [];
+        if (markdown) {
+          replacements.push(
+            ...(await markdownImportReplacements({
+              imports: collectAttributedImports(parsed.program, markdown.attribute),
+              importerPath,
+              rejectSkillMarkdown: markdown.rejectSkillMarkdown,
+              root: viteRoot,
+              resolve: (specifier) => this.resolve(specifier, importerPath, { skipSelf: true }),
+            })),
+          );
+        }
+        if (skill) {
+          replacements.push(
+            ...(await skillImportReplacements({
+              imports: collectAttributedImports(parsed.program, skill.attribute),
+              importerPath,
+              resolve: (specifier) => this.resolve(specifier, importerPath, { skipSelf: true }),
+            })),
+          );
+        }
+        if (replacements.length === 0) return null;
+
+        const source = new MagicString(code);
+        for (const replacement of replacements) {
+          source.overwrite(
+            replacement.start,
+            replacement.end,
+            JSON.stringify(replacement.moduleId),
+          );
+        }
+        return { code: source.toString(), map: source.generateMap({ hires: "boundary" }) };
+      },
+    },
+    resolveId: {
+      filter: {
+        id: [
+          prefixRegex(markdownModulePrefix),
+          prefixRegex(skillModulePrefix),
+          prefixRegex(encodedSkillModulePrefix),
+          skillMarkdownPattern,
+        ],
+      },
+      handler(source, importer, resolveOptions) {
+        if (source.startsWith(markdownModulePrefix)) return source;
+        const skillModuleId = decodeSkillModuleId(source);
+        if (skillModuleId) return skillModuleId;
+
+        if (!importer) return null;
+        // `scan` is set during Vite's dependency-scan pass; it exists at runtime
+        // but is stripped from the published resolveId option types as internal.
+        const { scan } = resolveOptions as { scan?: boolean };
+        if (scan || decodeSkillModuleId(importer)) return null;
+        if (skill && isSkillMarkdownPath(source)) {
+          this.error(
+            `SKILL.md import "${source}" must use an import attribute: with { type: "${skill.attribute}" }.`,
+          );
+        }
         return null;
-      }
-
-      const oxcResult = /\.[cm]?tsx?(?:\?|$)/i.test(id)
-        ? await transformWithOxc(code, importerPath, {})
-        : undefined;
-      const parseableCode = oxcResult?.code ?? code;
-      const ast = this.parse(parseableCode) as unknown as ModuleAst;
-      if (state.skill.enabled) assertNoDynamicSkillImports(ast);
-
-      const replacements = [
-        ...(state.markdown.enabled
-          ? await markdownImportReplacements({
-              imports: collectAttributedImports(ast, state.markdown.attribute),
-              importerPath,
-              rejectSkillMarkdown: state.markdown.rejectSkillMarkdown,
-              root: state.viteRoot,
-              markdownPrefix: virtualModules.markdownPrefix,
-              resolve: (specifier) => this.resolve(specifier, importerPath, { skipSelf: true }),
-            })
-          : []),
-        ...(state.skill.enabled
-          ? await skillImportReplacements({
-              imports: collectAttributedImports(ast, state.skill.attribute),
-              importerPath,
-              skillPrefix: virtualModules.skillPrefix,
-              resolve: (specifier) => this.resolve(specifier, importerPath, { skipSelf: true }),
-            })
-          : []),
-      ];
-
-      if (replacements.length === 0) return null;
-
-      let transformed = parseableCode;
-      for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
-        transformed = `${transformed.slice(0, replacement.start)}${JSON.stringify(replacement.moduleId)}${transformed.slice(replacement.end)}`;
-      }
-
-      return { code: transformed, map: oxcResult?.map ?? null };
-    },
-    resolveId(source, importer) {
-      if (source.startsWith(virtualModules.markdownPrefix)) return source;
-      const skillModuleId = decodeSkillModuleId(source, virtualModules);
-      if (skillModuleId) return skillModuleId;
-
-      if (!importer) return null;
-      if (state.skill.enabled && isSkillMarkdownPath(source)) {
-        throw pluginError(
-          `SKILL.md import "${source}" must use an import attribute: with { type: "${state.skill.attribute}" }.`,
-        );
-      }
-
-      return null;
+      },
     },
     hotUpdate(update) {
       const changedPath = normalizePath(path.resolve(update.file));
-      const modules = [];
+      const invalidated: EnvironmentModuleNode[] = [];
 
-      for (const [directory, moduleId] of state.skillModules) {
+      for (const [directory, moduleId] of skillModulesByDirectory) {
         if (!isWithinDirectory(changedPath, directory)) continue;
         const module = this.environment.moduleGraph.getModuleById(moduleId);
         if (module === undefined) continue;
         this.environment.moduleGraph.invalidateModule(module);
-        state.skillModules.delete(directory);
-        modules.push(module);
+        invalidated.push(module);
       }
 
-      return modules.length > 0 ? modules : undefined;
+      if (invalidated.length === 0) return;
+      return invalidated;
     },
-    async load(id) {
-      if (id.startsWith(virtualModules.markdownPrefix)) {
-        const markdownPath = id.slice(virtualModules.markdownPrefix.length);
-        this.addWatchFile(markdownPath);
-        return `export default ${JSON.stringify(await fs.readFile(markdownPath, "utf8"))};`;
-      }
-
-      if (id.startsWith(virtualModules.skillPrefix)) {
-        if (!state.skill.enabled) return null;
-
-        const skillPath = id.slice(virtualModules.skillPrefix.length);
-        const skillDirectory = normalizePath(path.dirname(skillPath));
-        state.skillModules.set(skillDirectory, id);
-        this.addWatchFile(skillDirectory);
-        this.addWatchFile(skillPath);
-        this.addWatchFile(normalizePath(path.join(skillDirectory, ".gitignore")));
-        if (state.viteRoot) {
-          this.addWatchFile(normalizePath(path.join(state.viteRoot, ".gitignore")));
+    load: {
+      filter: {
+        id: [prefixRegex(markdownModulePrefix), prefixRegex(skillModulePrefix)],
+      },
+      async handler(id) {
+        if (id.startsWith(markdownModulePrefix)) {
+          const markdownPath = id.slice(markdownModulePrefix.length);
+          this.addWatchFile(markdownPath);
+          return `export default ${JSON.stringify(await fs.readFile(markdownPath, "utf8"))};`;
         }
+        if (!skill) return null;
+
+        const skillPath = id.slice(skillModulePrefix.length);
+        const skillDirectory = normalizePath(path.dirname(skillPath));
+        skillModulesByDirectory.set(skillDirectory, id);
+        this.addWatchFile(skillPath);
         const manifest = await buildSkillManifest({
           skillPath,
-          viteRoot: state.viteRoot,
-          config: state.skill,
+          viteRoot,
+          config: skill,
           warn: (message) => this.warn(message),
         });
-        for (const skill of manifest.skills) {
-          for (const resource of skill.resources) {
+        for (const entry of manifest.skills) {
+          for (const resource of entry.resources) {
             this.addWatchFile(normalizePath(path.join(skillDirectory, resource.path)));
           }
         }
-        return skillModuleCode(manifest, state.skill);
-      }
-
-      return null;
+        return skillModuleCode(manifest, skill);
+      },
     },
   };
 }
 
-function containsImportAttribute(code: string): boolean {
-  return /\bwith\s*\{/.test(code);
-}
-
 function isWithinDirectory(filePath: string, directory: string): boolean {
   return filePath === directory || filePath.startsWith(`${directory}/`);
-}
-
-interface ImportReplacement {
-  start: number;
-  end: number;
-  moduleId: string;
-}
-
-interface ResolvedImport {
-  id: string;
-  external?: boolean | string;
-}
-
-async function markdownImportReplacements({
-  imports,
-  importerPath,
-  rejectSkillMarkdown,
-  root,
-  markdownPrefix,
-  resolve,
-}: {
-  imports: Array<{ specifier: string; start: number; end: number }>;
-  importerPath: string;
-  rejectSkillMarkdown: boolean;
-  root: string;
-  markdownPrefix: string;
-  resolve: (specifier: string) => Promise<ResolvedImport | null>;
-}): Promise<ImportReplacement[]> {
-  return Promise.all(
-    imports.map(async (declaration) => {
-      if (rejectSkillMarkdown && isSkillMarkdownPath(declaration.specifier)) {
-        throw pluginError('SKILL.md imports must use an import attribute: with { type: "skill" }.');
-      }
-      if (!/\.md(?:[?#].*)?$/i.test(declaration.specifier)) {
-        throw pluginError(`Markdown imports must target a .md file: ${declaration.specifier}`);
-      }
-
-      const resolved = await resolveImportPath({
-        specifier: declaration.specifier,
-        importerPath,
-        root,
-        resolve,
-      });
-      if (rejectSkillMarkdown && isSkillMarkdownPath(resolved.id)) {
-        throw pluginError('SKILL.md imports must use an import attribute: with { type: "skill" }.');
-      }
-
-      return {
-        start: declaration.start,
-        end: declaration.end,
-        moduleId: `${markdownPrefix}${stripQueryAndHash(resolved.id)}`,
-      };
-    }),
-  );
-}
-
-async function skillImportReplacements({
-  imports,
-  importerPath,
-  skillPrefix,
-  resolve,
-}: {
-  imports: Array<{ specifier: string; start: number; end: number }>;
-  importerPath: string;
-  skillPrefix: string;
-  resolve: (specifier: string) => Promise<ResolvedImport | null>;
-}): Promise<ImportReplacement[]> {
-  return Promise.all(
-    imports.map(async (declaration) => {
-      if (!isSkillMarkdownPath(declaration.specifier)) {
-        throw pluginError(`Skill imports must target a SKILL.md file: ${declaration.specifier}`);
-      }
-
-      const resolved = await resolve(declaration.specifier);
-      if (!resolved || resolved.external) {
-        throw pluginError(
-          `Unable to resolve skill import "${declaration.specifier}" from ${importerPath}.`,
-        );
-      }
-
-      const filesystemPath = stripQueryAndHash(resolved.id);
-      if (!path.isAbsolute(filesystemPath)) {
-        throw pluginError(
-          `Skill imports must resolve to a filesystem path: ${declaration.specifier}`,
-        );
-      }
-
-      const resolvedPath = normalizePath(filesystemPath);
-      if (!isSkillMarkdownPath(resolvedPath)) {
-        throw pluginError(
-          `Skill imports must resolve to a SKILL.md file: ${declaration.specifier}`,
-        );
-      }
-
-      return {
-        start: declaration.start,
-        end: declaration.end,
-        moduleId: `${skillPrefix}${resolvedPath}`,
-      };
-    }),
-  );
-}
-
-async function resolveImportPath({
-  specifier,
-  importerPath,
-  root,
-  resolve,
-}: {
-  specifier: string;
-  importerPath: string;
-  root: string;
-  resolve: (specifier: string) => Promise<ResolvedImport | null>;
-}): Promise<ResolvedImport> {
-  const rootRelativePath = specifier.startsWith("/")
-    ? path.resolve(root, specifier.slice(1))
-    : undefined;
-  const resolved = rootRelativePath
-    ? { id: rootRelativePath, external: false }
-    : await resolve(specifier);
-
-  if (!resolved || resolved.external) {
-    throw pluginError(`Unable to resolve markdown import "${specifier}" from ${importerPath}.`);
-  }
-
-  return resolved;
 }

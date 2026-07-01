@@ -1,8 +1,8 @@
-import { pluginError } from "./errors";
+import * as path from "node:path";
 
-export interface ModuleAst {
-  body: unknown[];
-}
+import { normalizePath, type ESTree } from "vite";
+
+import { markdownModulePrefix, skillModulePrefix } from "./virtual-modules";
 
 export interface AttributedImport {
   specifier: string;
@@ -10,70 +10,139 @@ export interface AttributedImport {
   end: number;
 }
 
-interface AstNode {
-  type?: string;
-  source?: {
-    value?: unknown;
-    start?: number;
-    end?: number;
-  };
-  attributes?: Array<{
-    key?: {
-      name?: unknown;
-      value?: unknown;
-    };
-    value?: {
-      value?: unknown;
-    };
-  }>;
+export interface ImportReplacement {
+  start: number;
+  end: number;
+  moduleId: string;
 }
 
+export interface ResolvedImport {
+  id: string;
+  external?: boolean | string;
+}
+
+type ResolveSpecifier = (specifier: string) => Promise<ResolvedImport | null>;
+
+type AttributedDeclaration =
+  | ESTree.ImportDeclaration
+  | ESTree.ExportNamedDeclaration
+  | ESTree.ExportAllDeclaration;
+
 export function collectAttributedImports(
-  ast: ModuleAst,
+  program: ESTree.Program,
   attributeValue: string,
 ): AttributedImport[] {
   const imports: AttributedImport[] = [];
 
-  for (const entry of ast.body) {
-    const declaration = entry as AstNode;
-    if (
-      declaration.type !== "ImportDeclaration" &&
-      declaration.type !== "ExportNamedDeclaration" &&
-      declaration.type !== "ExportAllDeclaration"
-    ) {
-      continue;
-    }
+  for (const statement of program.body) {
+    if (!isAttributedDeclaration(statement)) continue;
+    if (statement.source === null) continue;
+    if (!hasTypeAttribute(statement.attributes, attributeValue)) continue;
 
-    const specifier = declaration.source?.value;
-    if (typeof specifier !== "string") continue;
-
-    const matchesAttribute = declaration.attributes?.some((attribute) => {
-      const key = attribute.key?.name ?? attribute.key?.value;
-      return key === "type" && attribute.value?.value === attributeValue;
+    imports.push({
+      specifier: statement.source.value,
+      start: statement.source.start,
+      end: statement.source.end,
     });
-    if (!matchesAttribute) continue;
-
-    const start = declaration.source?.start;
-    const end = declaration.source?.end;
-    if (typeof start !== "number" || typeof end !== "number") {
-      throw pluginError(`Unable to transform attributed import: ${specifier}`);
-    }
-    imports.push({ specifier, start, end });
   }
 
   return imports;
 }
 
-export function assertNoDynamicSkillImports(ast: ModuleAst): void {
-  visitAst(ast, (node) => {
-    if (node.type !== "ImportExpression") return;
-    const specifier = node.source?.value;
+export function assertNoDynamicSkillImports(program: ESTree.Program): void {
+  visitImportExpressions(program, (node) => {
+    if (node.source.type !== "Literal") return;
+    const specifier = node.source.value;
     if (typeof specifier === "string" && isSkillMarkdownPath(specifier)) {
-      throw pluginError(
+      throw new Error(
         `Dynamic SKILL.md import "${specifier}" is unsupported. Use a static import with { type: "skill" }.`,
       );
     }
   });
+}
+
+export async function markdownImportReplacements({
+  imports,
+  importerPath,
+  rejectSkillMarkdown,
+  root,
+  resolve,
+}: {
+  imports: AttributedImport[];
+  importerPath: string;
+  rejectSkillMarkdown: boolean;
+  root: string;
+  resolve: ResolveSpecifier;
+}): Promise<ImportReplacement[]> {
+  return Promise.all(
+    imports.map(async (declaration) => {
+      if (rejectSkillMarkdown && isSkillMarkdownPath(declaration.specifier)) {
+        throw new Error('SKILL.md imports must use an import attribute: with { type: "skill" }.');
+      }
+      if (!/\.md(?:[?#].*)?$/i.test(declaration.specifier)) {
+        throw new Error(`Markdown imports must target a .md file: ${declaration.specifier}`);
+      }
+
+      const resolved = await resolveImportPath({
+        specifier: declaration.specifier,
+        importerPath,
+        root,
+        resolve,
+      });
+      if (rejectSkillMarkdown && isSkillMarkdownPath(resolved.id)) {
+        throw new Error('SKILL.md imports must use an import attribute: with { type: "skill" }.');
+      }
+
+      return {
+        start: declaration.start,
+        end: declaration.end,
+        moduleId: `${markdownModulePrefix}${stripQueryAndHash(resolved.id)}`,
+      };
+    }),
+  );
+}
+
+export async function skillImportReplacements({
+  imports,
+  importerPath,
+  resolve,
+}: {
+  imports: AttributedImport[];
+  importerPath: string;
+  resolve: ResolveSpecifier;
+}): Promise<ImportReplacement[]> {
+  return Promise.all(
+    imports.map(async (declaration) => {
+      if (!isSkillMarkdownPath(declaration.specifier)) {
+        throw new Error(`Skill imports must target a SKILL.md file: ${declaration.specifier}`);
+      }
+
+      const resolved = await resolve(declaration.specifier);
+      if (!resolved || resolved.external) {
+        throw new Error(
+          `Unable to resolve skill import "${declaration.specifier}" from ${importerPath}.`,
+        );
+      }
+
+      const filesystemPath = stripQueryAndHash(resolved.id);
+      if (!path.isAbsolute(filesystemPath)) {
+        throw new Error(
+          `Skill imports must resolve to a filesystem path: ${declaration.specifier}`,
+        );
+      }
+
+      const resolvedPath = normalizePath(filesystemPath);
+      if (!isSkillMarkdownPath(resolvedPath)) {
+        throw new Error(`Skill imports must resolve to a SKILL.md file: ${declaration.specifier}`);
+      }
+
+      return {
+        start: declaration.start,
+        end: declaration.end,
+        moduleId: `${skillModulePrefix}${resolvedPath}`,
+      };
+    }),
+  );
 }
 
 export function isSkillMarkdownPath(specifier: string): boolean {
@@ -84,16 +153,65 @@ export function stripQueryAndHash(specifier: string): string {
   return specifier.split(/[?#]/, 1)[0] ?? specifier;
 }
 
-function visitAst(value: unknown, visit: (node: AstNode) => void): void {
+function isAttributedDeclaration(
+  statement: ESTree.Directive | ESTree.Statement,
+): statement is AttributedDeclaration {
+  return (
+    statement.type === "ImportDeclaration" ||
+    statement.type === "ExportNamedDeclaration" ||
+    statement.type === "ExportAllDeclaration"
+  );
+}
+
+function hasTypeAttribute(attributes: ESTree.ImportAttribute[], attributeValue: string): boolean {
+  return attributes.some(
+    (attribute) =>
+      importAttributeKey(attribute) === "type" && attribute.value.value === attributeValue,
+  );
+}
+
+function importAttributeKey(attribute: ESTree.ImportAttribute): string {
+  if (attribute.key.type === "Identifier") return attribute.key.name;
+  return attribute.key.value;
+}
+
+async function resolveImportPath({
+  specifier,
+  importerPath,
+  root,
+  resolve,
+}: {
+  specifier: string;
+  importerPath: string;
+  root: string;
+  resolve: ResolveSpecifier;
+}): Promise<ResolvedImport> {
+  if (specifier.startsWith("/")) {
+    return { id: path.resolve(root, specifier.slice(1)), external: false };
+  }
+
+  const resolved = await resolve(specifier);
+  if (!resolved || resolved.external) {
+    throw new Error(`Unable to resolve markdown import "${specifier}" from ${importerPath}.`);
+  }
+
+  return resolved;
+}
+
+function visitImportExpressions(
+  value: unknown,
+  visit: (node: ESTree.ImportExpression) => void,
+): void {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) {
-    for (const item of value) visitAst(item, visit);
+    for (const item of value) visitImportExpressions(item, visit);
     return;
   }
 
-  const node = value as AstNode & Record<string, unknown>;
-  if (typeof node.type === "string") visit(node);
+  const node = value as Record<string, unknown>;
+  if (node.type === "ImportExpression") visit(node as unknown as ESTree.ImportExpression);
   for (const [key, child] of Object.entries(node)) {
-    if (key !== "start" && key !== "end" && key !== "loc") visitAst(child, visit);
+    if (key === "start" || key === "end" || key === "loc" || key === "parent") continue;
+    visitImportExpressions(child, visit);
   }
 }

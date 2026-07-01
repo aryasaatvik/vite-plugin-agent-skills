@@ -1,7 +1,5 @@
 import { FAILSAFE_SCHEMA, load } from "js-yaml";
 
-import { pluginError, pluginMessage } from "./errors";
-
 export interface ParsedSkillMarkdown {
   name: string;
   description: string;
@@ -27,7 +25,7 @@ export function parseSkillMarkdown(
   const cleanContent = content.replace(/^\uFEFF/, "");
   const match = cleanContent.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)([\s\S]*)$/);
   if (!match) {
-    throw pluginError(`Skill ${options.path} is missing YAML frontmatter.`);
+    throw new Error(`Skill ${options.path} is missing YAML frontmatter.`);
   }
 
   let raw: unknown;
@@ -35,70 +33,66 @@ export function parseSkillMarkdown(
     raw = load(match[1] ?? "", { schema: FAILSAFE_SCHEMA });
   } catch (error) {
     const detail = error instanceof Error ? ` ${error.message}` : "";
-    throw pluginError(`Skill ${options.path} has invalid YAML frontmatter.${detail}`, {
+    throw new Error(`Skill ${options.path} has invalid YAML frontmatter.${detail}`, {
       cause: error,
     });
   }
   if (!isRecord(raw)) {
-    throw pluginError(`Skill ${options.path} frontmatter must be a YAML mapping.`);
+    throw new Error(`Skill ${options.path} frontmatter must be a YAML mapping.`);
   }
 
   const name = requireString(raw.name, options.path, "name");
   validateSkillName(name, options);
   const description = requireString(raw.description, options.path, "description");
   if ([...description].length > 1_024) {
-    throw pluginError(`Skill ${options.path} frontmatter description exceeds 1024 characters.`);
+    throw new Error(`Skill ${options.path} frontmatter description exceeds 1024 characters.`);
   }
 
   const compatibility = optionalString(raw.compatibility, options.path, "compatibility");
   if (compatibility !== undefined && [...compatibility].length > 500) {
-    throw pluginError(`Skill ${options.path} compatibility must be at most 500 characters.`);
+    throw new Error(`Skill ${options.path} compatibility must be at most 500 characters.`);
   }
 
-  const parsed: ParsedSkillMarkdown = {
+  return {
     name,
     description,
     body: (match[2] ?? "").trim(),
     rawContent: cleanContent,
+    license: optionalString(raw.license, options.path, "license"),
+    compatibility,
+    metadata: optionalRecord(raw.metadata, options.path, "metadata"),
+    allowedTools: optionalString(raw["allowed-tools"], options.path, "allowed-tools"),
   };
-  const license = optionalString(raw.license, options.path, "license");
-  if (license !== undefined) parsed.license = license;
-  if (compatibility !== undefined) parsed.compatibility = compatibility;
-  const metadata = optionalRecord(raw.metadata, options.path, "metadata");
-  if (metadata !== undefined) parsed.metadata = metadata;
-  const allowedTools = optionalString(raw["allowed-tools"], options.path, "allowed-tools");
-  if (allowedTools !== undefined) parsed.allowedTools = allowedTools;
-
-  return parsed;
 }
 
 function validateSkillName(name: string, options: ParseSkillMarkdownOptions): void {
-  const failures = [
-    name.length > 64 ? "name must be at most 64 characters" : undefined,
-    /^[a-z0-9-]+$/.test(name)
-      ? undefined
-      : "name must contain only lowercase ASCII letters, numbers, and hyphens",
-    name.startsWith("-") || name.endsWith("-") || name.includes("--")
-      ? "name must not start or end with a hyphen or contain consecutive hyphens"
-      : undefined,
-    name === options.directoryName
-      ? undefined
-      : `name must match directory "${options.directoryName}"`,
-  ].filter((failure): failure is string => failure !== undefined);
-
+  const failures: string[] = [];
+  if (name.length > 64) {
+    failures.push("name must be at most 64 characters");
+  }
+  if (!/^[a-z0-9-]+$/.test(name)) {
+    failures.push("name must contain only lowercase ASCII letters, numbers, and hyphens");
+  }
+  if (name.startsWith("-") || name.endsWith("-") || name.includes("--")) {
+    failures.push("name must not start or end with a hyphen or contain consecutive hyphens");
+  }
+  if (name !== options.directoryName) {
+    failures.push(`name must match directory "${options.directoryName}"`);
+  }
   if (failures.length === 0) return;
+
   const detail = `Skill ${options.path} frontmatter ${failures.join("; ")}.`;
   if (options.validate === "warn") {
-    options.warn?.(pluginMessage(detail));
+    options.warn?.(detail);
     return;
   }
-  throw pluginError(detail);
+  throw new Error(detail);
 }
 
 function requireString(value: unknown, path: string, field: string): string {
   const string = optionalString(value, path, field);
   if (string === undefined) {
-    throw pluginError(`Skill ${path} must define frontmatter ${field} as a non-empty string.`);
+    throw new Error(`Skill ${path} must define frontmatter ${field} as a non-empty string.`);
   }
   return string;
 }
@@ -106,11 +100,12 @@ function requireString(value: unknown, path: string, field: string): string {
 function optionalString(value: unknown, path: string, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
-    throw pluginError(`Skill ${path} frontmatter ${field} must be a string when provided.`);
+    throw new Error(`Skill ${path} frontmatter ${field} must be a string when provided.`);
   }
 
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  if (trimmed.length === 0) return undefined;
+  return trimmed;
 }
 
 function optionalRecord(
@@ -120,7 +115,7 @@ function optionalRecord(
 ): Record<string, unknown> | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) {
-    throw pluginError(`Skill ${path} frontmatter ${field} must be a YAML mapping.`);
+    throw new Error(`Skill ${path} frontmatter ${field} must be a YAML mapping.`);
   }
   return value;
 }
