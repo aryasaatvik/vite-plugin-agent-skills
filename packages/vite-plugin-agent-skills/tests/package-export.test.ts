@@ -4,8 +4,9 @@ import packageJson from "../package.json" with { type: "json" };
 
 describe("package exports", () => {
   it("points at the Node ESM build artifact names", () => {
+    expect(packageJson.types).toBe("./dist/root.d.ts");
     expect(packageJson.exports["."]).toEqual({
-      types: "./dist/index.d.ts",
+      types: "./dist/root.d.ts",
       import: "./dist/index.mjs",
     });
   });

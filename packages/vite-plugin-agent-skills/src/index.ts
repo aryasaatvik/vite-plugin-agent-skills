@@ -30,6 +30,7 @@ export interface AgentSkillsPluginOptions {
 }
 
 export type { MarkdownImportOptions } from "./markdown-import";
+export type { SkillManifest, SkillManifestEntry, SkillManifestResource } from "./skill-manifest";
 export type { SkillImportOptions } from "./skill-import";
 export type { SkillDirectoryFile, SkillResourceOptions } from "./skill-directory";
 

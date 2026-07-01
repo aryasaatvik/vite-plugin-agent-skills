@@ -52,6 +52,22 @@ agentSkills({
 });
 ```
 
+Add the package root types to TypeScript projects that import Markdown modules:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["vite/client", "vite-plugin-agent-skills"]
+  }
+}
+```
+
+The shipped module declarations type `*.md` imports as `string` and
+`*/SKILL.md` imports as `SkillManifest`, matching `mode: "manifest"`.
+Default `skillSource` mode can return a runtime-specific type from
+`runtime.fromManifest`, so projects using that mode should type that runtime
+boundary explicitly.
+
 ## Config
 
 ```ts

@@ -4,7 +4,7 @@
   "compilerOptions": {
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "rootDir": ".",
-    "types": ["vite/client"]
+    "types": ["vite/client", "vite-plugin-agent-skills"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts", "vite.config.ts"]
 }

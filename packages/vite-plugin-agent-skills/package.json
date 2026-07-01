@@ -24,9 +24,10 @@
     "package.json"
   ],
   "type": "module",
+  "types": "./dist/root.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/root.d.ts",
       "import": "./dist/index.mjs"
     },
     "./package.json": "./package.json"
