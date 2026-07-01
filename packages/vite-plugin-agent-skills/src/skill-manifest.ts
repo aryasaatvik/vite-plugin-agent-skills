@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { normalizePath } from "vite";
 
 import { collectSkillDirectoryFiles } from "./skill-directory";
-import { parseSkillMarkdown } from "./skill-frontmatter";
+import { parseSkillMarkdown, type ParsedSkillMarkdown } from "./skill-frontmatter";
 import type { SkillImportConfig } from "./skill-import";
 
 export interface SkillManifestResource {
@@ -21,7 +21,6 @@ export interface SkillManifestEntry {
   name: string;
   description: string;
   body: string;
-  rawContent: string;
   compatibility?: string;
   license?: string;
   allowedTools?: string;
@@ -118,10 +117,7 @@ export async function buildSkillManifest({
       )
     ).map(async (file) => skillManifestResource(file.path, file.absolutePath, file.size)),
   );
-  const entry: SkillManifestEntry = {
-    ...parsed,
-    resources,
-  };
+  const entry = skillManifestEntry(parsed, resources);
   const fingerprint = skillFingerprint(entry);
 
   return {
@@ -138,8 +134,15 @@ export function skillModuleCode(
   const manifestCode = `const manifest = ${JSON.stringify(manifest)};`;
   if (config.mode === "manifest") return `${manifestCode}\nexport default manifest;\n`;
 
+  const fromManifest = config.runtime.fromManifest;
+  if (!isJavaScriptIdentifier(fromManifest)) {
+    throw new Error(
+      `[vite-plugin-agent-skills] runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`,
+    );
+  }
+
   return [
-    `import { ${config.runtime.fromManifest} as fromManifest } from ${JSON.stringify(config.runtime.importFrom)};`,
+    `import { ${fromManifest} as fromManifest } from ${JSON.stringify(config.runtime.importFrom)};`,
     manifestCode,
     "export default fromManifest(manifest);",
     "",
@@ -169,6 +172,27 @@ function skillFingerprint(entry: SkillManifestEntry): string {
   const hash = createHash("sha256");
   hash.update(JSON.stringify(entry));
   return hash.digest("hex");
+}
+
+function skillManifestEntry(
+  parsed: ParsedSkillMarkdown,
+  resources: SkillManifestResource[],
+): SkillManifestEntry {
+  const entry: SkillManifestEntry = {
+    name: parsed.name,
+    description: parsed.description,
+    body: parsed.body,
+    resources,
+  };
+  if (parsed.compatibility !== undefined) entry.compatibility = parsed.compatibility;
+  if (parsed.license !== undefined) entry.license = parsed.license;
+  if (parsed.allowedTools !== undefined) entry.allowedTools = parsed.allowedTools;
+  if (parsed.metadata !== undefined) entry.metadata = parsed.metadata;
+  return entry;
+}
+
+function isJavaScriptIdentifier(value: string): boolean {
+  return /^[$_\p{ID_Start}][$\u200c\u200d\p{ID_Continue}]*$/u.test(value);
 }
 
 function resourceKind(resourcePath: string): "reference" | "script" | "asset" | "file" {

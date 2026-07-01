@@ -131,6 +131,22 @@ export const value = skill;`,
     expect(mod.value.id).toMatch(/^bundle:review:/);
     expect(mod.value.manifest.skills[0]?.name).toBe("review");
   });
+
+  it("rejects invalid runtime fromManifest identifiers", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    await expect(
+      buildFixture(root, {
+        skill: { runtime: { importFrom: "/runtime.ts", fromManifest: "from-manifest" } },
+      }),
+    ).rejects.toThrow(/runtime\.fromManifest "from-manifest" is not a valid JavaScript identifier/);
+  });
 });
 
 async function createFixtureRoot(): Promise<string> {
