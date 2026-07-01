@@ -24,8 +24,7 @@ export function decodeSkillModuleId(
   ids: Pick<VirtualModuleIds, "skillPrefix" | "encodedSkillPrefix">,
 ): string | undefined {
   if (source.startsWith(ids.skillPrefix)) return source;
-  const encodedIndex = source.indexOf(ids.encodedSkillPrefix);
-  if (encodedIndex === -1) return undefined;
+  if (!source.startsWith(ids.encodedSkillPrefix)) return undefined;
 
-  return `${ids.skillPrefix}${source.slice(encodedIndex + ids.encodedSkillPrefix.length)}`;
+  return `${ids.skillPrefix}${source.slice(ids.encodedSkillPrefix.length)}`;
 }

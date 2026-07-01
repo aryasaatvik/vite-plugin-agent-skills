@@ -41,11 +41,16 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
       if (!/\.[cm]?[jt]sx?(?:\?|$)/i.test(id)) return null;
 
       const importerPath = id.split("?")[0] ?? id;
-      const parseableCode = /\.[cm]?tsx?(?:\?|$)/i.test(id)
-        ? (await transformWithOxc(code, importerPath, {})).code
-        : code;
+      if (!containsImportAttribute(code) && !(state.skill.enabled && code.includes("SKILL.md"))) {
+        return null;
+      }
+
+      const oxcResult = /\.[cm]?tsx?(?:\?|$)/i.test(id)
+        ? await transformWithOxc(code, importerPath, {})
+        : undefined;
+      const parseableCode = oxcResult?.code ?? code;
       const ast = this.parse(parseableCode) as unknown as ModuleAst;
-      assertNoDynamicSkillImports(ast);
+      if (state.skill.enabled) assertNoDynamicSkillImports(ast);
 
       const replacements = [
         ...(state.markdown.enabled
@@ -75,7 +80,7 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
         transformed = `${transformed.slice(0, replacement.start)}${JSON.stringify(replacement.moduleId)}${transformed.slice(replacement.end)}`;
       }
 
-      return { code: transformed, map: null };
+      return { code: transformed, map: oxcResult?.map ?? null };
     },
     resolveId(source, importer) {
       if (source.startsWith(virtualModules.markdownPrefix)) return source;
@@ -107,6 +112,10 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
       return null;
     },
   };
+}
+
+function containsImportAttribute(code: string): boolean {
+  return /\bwith\s*\{/.test(code);
 }
 
 interface ImportReplacement {

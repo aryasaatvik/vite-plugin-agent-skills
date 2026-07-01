@@ -55,6 +55,19 @@ export const value = note;`,
     await expect(buildFixture(root)).rejects.toThrow(/Dynamic SKILL\.md import/);
   });
 
+  it("does not reject dynamic SKILL.md imports when skill imports are disabled", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `export async function loadSkill() {
+  return import("./skills/review/SKILL.md");
+}`,
+    );
+
+    await expect(buildFixture(root, { skill: false })).resolves.toEqual(expect.any(Array));
+  });
+
   it("requires SKILL.md imports to use the skill attribute", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
@@ -109,11 +122,28 @@ async function buildAndImport<T>(root: string): Promise<T> {
   return import(`data:text/javascript,${encodeURIComponent(chunk.code)}`) as Promise<T>;
 }
 
-async function buildFixture(root: string): Promise<Rollup.OutputBundle> {
+async function buildFixture(
+  root: string,
+  options: Parameters<typeof agentSkills>[0] = {},
+): Promise<Rollup.OutputBundle> {
   const result = await build({
     root,
     logLevel: "silent",
-    plugins: [agentSkills()],
+    plugins: [
+      agentSkills(options),
+      {
+        name: "test-external-skill-markdown",
+        enforce: "pre",
+        resolveId(source) {
+          if (source.endsWith("/SKILL.md")) return join(root, source);
+          return null;
+        },
+        load(id) {
+          if (id.endsWith("/SKILL.md")) return "export default {};";
+          return null;
+        },
+      },
+    ],
     build: {
       write: false,
       lib: {
