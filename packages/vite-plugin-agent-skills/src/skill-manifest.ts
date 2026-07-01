@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 import { normalizePath } from "vite";
 
+import { pluginError } from "./errors";
 import { collectSkillDirectoryFiles } from "./skill-directory";
 import { parseSkillMarkdown, type ParsedSkillMarkdown } from "./skill-frontmatter";
 import type { SkillImportConfig } from "./skill-import";
@@ -136,8 +137,8 @@ export function skillModuleCode(
 
   const fromManifest = config.runtime.fromManifest;
   if (!isJavaScriptIdentifier(fromManifest)) {
-    throw new Error(
-      `[vite-plugin-agent-skills] runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`,
+    throw pluginError(
+      `runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`,
     );
   }
 
