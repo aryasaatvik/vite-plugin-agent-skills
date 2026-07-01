@@ -10,6 +10,7 @@ import {
   stripQueryAndHash,
   type ModuleAst,
 } from "./attributed-imports";
+import { pluginError, pluginName } from "./errors";
 import { markdownImportConfig, type MarkdownImportOptions } from "./markdown-import";
 import { skillImportConfig, type SkillImportOptions } from "./skill-import";
 import { createVirtualModuleIds, decodeSkillModuleId } from "./virtual-modules";
@@ -32,7 +33,7 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
   };
 
   return {
-    name: "vite-plugin-agent-skills",
+    name: pluginName,
     enforce: "pre",
     configResolved(config) {
       state.viteRoot = config.root;
@@ -89,8 +90,8 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
 
       if (!importer) return null;
       if (state.skill.enabled && isSkillMarkdownPath(source)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] SKILL.md import "${source}" must use an import attribute: with { type: "${state.skill.attribute}" }.`,
+        throw pluginError(
+          `SKILL.md import "${source}" must use an import attribute: with { type: "${state.skill.attribute}" }.`,
         );
       }
 
@@ -104,8 +105,8 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
       }
 
       if (id.startsWith(virtualModules.skillPrefix)) {
-        throw new Error(
-          "[vite-plugin-agent-skills] Skill imports are recognized, but manifest emission is implemented in the next stacked PR.",
+        throw pluginError(
+          "Skill imports are recognized, but manifest emission is implemented in the next stacked PR.",
         );
       }
 
@@ -147,14 +148,10 @@ async function markdownImportReplacements({
   return Promise.all(
     imports.map(async (declaration) => {
       if (rejectSkillMarkdown && isSkillMarkdownPath(declaration.specifier)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] SKILL.md imports must use an import attribute: with { type: "skill" }.`,
-        );
+        throw pluginError('SKILL.md imports must use an import attribute: with { type: "skill" }.');
       }
       if (!/\.md(?:[?#].*)?$/i.test(declaration.specifier)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] Markdown imports must target a .md file: ${declaration.specifier}`,
-        );
+        throw pluginError(`Markdown imports must target a .md file: ${declaration.specifier}`);
       }
 
       const resolved = await resolveImportPath({
@@ -164,9 +161,7 @@ async function markdownImportReplacements({
         resolve,
       });
       if (rejectSkillMarkdown && isSkillMarkdownPath(resolved.id)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] SKILL.md imports must use an import attribute: with { type: "skill" }.`,
-        );
+        throw pluginError('SKILL.md imports must use an import attribute: with { type: "skill" }.');
       }
 
       return {
@@ -192,29 +187,27 @@ async function skillImportReplacements({
   return Promise.all(
     imports.map(async (declaration) => {
       if (!isSkillMarkdownPath(declaration.specifier)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] Skill imports must target a SKILL.md file: ${declaration.specifier}`,
-        );
+        throw pluginError(`Skill imports must target a SKILL.md file: ${declaration.specifier}`);
       }
 
       const resolved = await resolve(declaration.specifier);
       if (!resolved || resolved.external) {
-        throw new Error(
-          `[vite-plugin-agent-skills] Unable to resolve skill import "${declaration.specifier}" from ${importerPath}.`,
+        throw pluginError(
+          `Unable to resolve skill import "${declaration.specifier}" from ${importerPath}.`,
         );
       }
 
       const filesystemPath = stripQueryAndHash(resolved.id);
       if (!path.isAbsolute(filesystemPath)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] Skill imports must resolve to a filesystem path: ${declaration.specifier}`,
+        throw pluginError(
+          `Skill imports must resolve to a filesystem path: ${declaration.specifier}`,
         );
       }
 
       const resolvedPath = normalizePath(filesystemPath);
       if (!isSkillMarkdownPath(resolvedPath)) {
-        throw new Error(
-          `[vite-plugin-agent-skills] Skill imports must resolve to a SKILL.md file: ${declaration.specifier}`,
+        throw pluginError(
+          `Skill imports must resolve to a SKILL.md file: ${declaration.specifier}`,
         );
       }
 
@@ -246,9 +239,7 @@ async function resolveImportPath({
     : await resolve(specifier);
 
   if (!resolved || resolved.external) {
-    throw new Error(
-      `[vite-plugin-agent-skills] Unable to resolve markdown import "${specifier}" from ${importerPath}.`,
-    );
+    throw pluginError(`Unable to resolve markdown import "${specifier}" from ${importerPath}.`);
   }
 
   return resolved;

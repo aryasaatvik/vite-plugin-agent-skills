@@ -1,3 +1,5 @@
+import { pluginError } from "./errors";
+
 export interface ModuleAst {
   body: unknown[];
 }
@@ -54,9 +56,7 @@ export function collectAttributedImports(
     const start = declaration.source?.start;
     const end = declaration.source?.end;
     if (typeof start !== "number" || typeof end !== "number") {
-      throw new Error(
-        `[vite-plugin-agent-skills] Unable to transform attributed import: ${specifier}`,
-      );
+      throw pluginError(`Unable to transform attributed import: ${specifier}`);
     }
     imports.push({ specifier, start, end });
   }
@@ -69,8 +69,8 @@ export function assertNoDynamicSkillImports(ast: ModuleAst): void {
     if (node.type !== "ImportExpression") return;
     const specifier = node.source?.value;
     if (typeof specifier === "string" && isSkillMarkdownPath(specifier)) {
-      throw new Error(
-        `[vite-plugin-agent-skills] Dynamic SKILL.md import "${specifier}" is unsupported. Use a static import with { type: "skill" }.`,
+      throw pluginError(
+        `Dynamic SKILL.md import "${specifier}" is unsupported. Use a static import with { type: "skill" }.`,
       );
     }
   });
