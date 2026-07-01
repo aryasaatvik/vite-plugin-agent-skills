@@ -19,7 +19,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -31,6 +31,9 @@
     "dev": "tsdown --watch --ignore-watch .turbo",
     "typecheck": "tsc --noEmit",
     "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
+  },
+  "dependencies": {
+    "ignore": "^7.0.5"
   },
   "devDependencies": {
     "vite": "^8.0.0"

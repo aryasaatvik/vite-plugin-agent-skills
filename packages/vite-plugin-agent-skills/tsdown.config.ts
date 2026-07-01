@@ -7,6 +7,6 @@ export default defineConfig({
   dts: false,
   sourcemap: true,
   clean: true,
-  platform: "neutral",
+  platform: "node",
   external: ["vite"],
 });
