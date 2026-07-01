@@ -4,6 +4,8 @@ import * as path from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { normalizePath } from "vite";
 
+import { pluginError, pluginMessage } from "./errors";
+
 export interface SkillResourceOptions {
   gitignore?: boolean;
   rejectSecrets?: boolean;
@@ -114,7 +116,7 @@ async function collectFiles({
 
       if (entry.isSymbolicLink()) {
         if (config.rejectSymlinks) {
-          throw new Error(
+          throw pluginError(
             `Skill directory "${root}" contains symbolic link "${relativePath}", which cannot be packaged.`,
           );
         }
@@ -123,7 +125,7 @@ async function collectFiles({
 
       if (entry.isDirectory()) {
         if (config.rejectSecrets && sensitiveDirectoryNames.has(entry.name.toLowerCase())) {
-          throw new Error(
+          throw pluginError(
             `Skill directory "${root}" contains sensitive directory "${relativePath}", which cannot be packaged.`,
           );
         }
@@ -140,7 +142,7 @@ async function collectFiles({
 
       if (!entry.isFile() || relativePath === "SKILL.md" || entry.name === ".gitignore") return;
       if (config.rejectSecrets && isSensitiveFile(entry.name)) {
-        throw new Error(
+        throw pluginError(
           `Skill directory "${root}" contains sensitive file "${relativePath}", which cannot be packaged.`,
         );
       }
@@ -148,8 +150,8 @@ async function collectFiles({
       const stat = await fs.stat(absolutePath);
       if (stat.size > config.largeFile.bytes) {
         const message = `Skill resource "${relativePath}" is ${stat.size} bytes and will be embedded in the Vite bundle.`;
-        if (config.largeFile.action === "error") throw new Error(message);
-        if (config.largeFile.action === "warn") warn?.(message);
+        if (config.largeFile.action === "error") throw pluginError(message);
+        if (config.largeFile.action === "warn") warn?.(pluginMessage(message));
       }
       files.push({ path: relativePath, absolutePath, size: stat.size });
     }),

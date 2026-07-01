@@ -80,7 +80,59 @@ export const value = skill;`,
     await expect(buildFixture(root)).rejects.toThrow(/must use an import attribute/);
   });
 
-  it("recognizes static skill imports before manifest emission exists", async () => {
+  it("imports SKILL.md as a manifest in manifest mode", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await mkdir(join(root, "skills", "review", "references"), { recursive: true });
+    await writeFile(join(root, "skills", "review", "references", "guide.md"), "Check behavior.");
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const mod = await buildAndImport<{
+      value: { skills: Array<{ name: string; resources: unknown[] }> };
+    }>(root, { skill: { mode: "manifest" } });
+
+    expect(mod.value.skills[0]).toMatchObject({
+      name: "review",
+      description: "Review source changes.",
+      resources: [
+        {
+          path: "references/guide.md",
+          kind: "reference",
+          encoding: "text",
+          content: "Check behavior.",
+        },
+      ],
+    });
+  });
+
+  it("emits SkillSource modules through the configured runtime", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "runtime.ts"),
+      `export function fromManifest(manifest) {
+  return { id: manifest.id, fingerprint: manifest.fingerprint, manifest };
+}`,
+    );
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const mod = await buildAndImport<{
+      value: { id: string; manifest: { skills: Array<{ name: string }> } };
+    }>(root, { skill: { runtime: { importFrom: "/runtime.ts" } } });
+
+    expect(mod.value.id).toMatch(/^bundle:review:/);
+    expect(mod.value.manifest.skills[0]?.name).toBe("review");
+  });
+
+  it("rejects invalid runtime fromManifest identifiers", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
     await writeFile(
@@ -89,7 +141,11 @@ export const value = skill;`,
 export const value = skill;`,
     );
 
-    await expect(buildFixture(root)).rejects.toThrow(/manifest emission is implemented/);
+    await expect(
+      buildFixture(root, {
+        skill: { runtime: { importFrom: "/runtime.ts", fromManifest: "from-manifest" } },
+      }),
+    ).rejects.toThrow(/runtime\.fromManifest "from-manifest" is not a valid JavaScript identifier/);
   });
 });
 
@@ -114,8 +170,11 @@ Read the diff and report correctness issues.
   );
 }
 
-async function buildAndImport<T>(root: string): Promise<T> {
-  const output = await buildFixture(root);
+async function buildAndImport<T>(
+  root: string,
+  options?: Parameters<typeof agentSkills>[0],
+): Promise<T> {
+  const output = await buildFixture(root, options);
   const chunk = output.find((item): item is Rollup.OutputChunk => item.type === "chunk");
   if (!chunk) throw new Error("Fixture build did not produce an output chunk.");
 
