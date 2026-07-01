@@ -43,7 +43,7 @@
     "release": "bun run typecheck && bun run test && bun run package:smoke && npm publish",
     "dev": "tsdown --watch --ignore-watch .turbo",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
+    "test": "vitest run --root ../.. packages/vite-plugin-agent-skills/tests"
   },
   "dependencies": {
     "@rolldown/pluginutils": "^1.0.1",
