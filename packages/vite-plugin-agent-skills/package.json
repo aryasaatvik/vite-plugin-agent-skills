@@ -20,6 +20,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "package.json"
   ],
@@ -37,6 +38,7 @@
   },
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly --noEmit false",
+    "prepublishOnly": "bun run build",
     "dev": "tsdown --watch --ignore-watch .turbo",
     "typecheck": "tsc --noEmit",
     "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
