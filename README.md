@@ -78,6 +78,13 @@ Skill resources respect `.gitignore` by default. Secret-looking files and
 symlinks are rejected separately so credentials are not bundled just because a
 project forgot to ignore them.
 
+## Examples
+
+The repo includes a Vite app in `examples/basic` that imports both plain
+Markdown and a `SKILL.md` manifest. It configures the plugin in
+`mode: "manifest"` so the example can build without an Agents SDK runtime
+dependency.
+
 ## Development
 
 ```sh
