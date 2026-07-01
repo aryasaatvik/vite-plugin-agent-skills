@@ -13,6 +13,7 @@ import {
 import { pluginError, pluginName } from "./errors";
 import { markdownImportConfig, type MarkdownImportOptions } from "./markdown-import";
 import { skillImportConfig, type SkillImportOptions } from "./skill-import";
+import { buildSkillManifest, skillModuleCode } from "./skill-manifest";
 import { createVirtualModuleIds, decodeSkillModuleId } from "./virtual-modules";
 
 export interface AgentSkillsPluginOptions {
@@ -105,9 +106,17 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
       }
 
       if (id.startsWith(virtualModules.skillPrefix)) {
-        throw pluginError(
-          "Skill imports are recognized, but manifest emission is implemented in the next stacked PR.",
-        );
+        if (!state.skill.enabled) return null;
+
+        const skillPath = id.slice(virtualModules.skillPrefix.length);
+        this.addWatchFile(skillPath);
+        const manifest = await buildSkillManifest({
+          skillPath,
+          viteRoot: state.viteRoot,
+          config: state.skill,
+          warn: (message) => this.warn(message),
+        });
+        return skillModuleCode(manifest, state.skill);
       }
 
       return null;
