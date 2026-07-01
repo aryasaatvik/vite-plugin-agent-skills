@@ -38,7 +38,8 @@
   },
   "scripts": {
     "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly --noEmit false",
-    "prepublishOnly": "bun run build",
+    "prepack": "bun run build",
+    "package:smoke": "bun run build && npm pack --dry-run",
     "dev": "tsdown --watch --ignore-watch .turbo",
     "typecheck": "tsc --noEmit",
     "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
