@@ -3,6 +3,17 @@
 Vite plugin for importing Markdown and Agent Skills from static import
 attributes.
 
+## Requirements
+
+- Vite `^8.0.0`
+- Node `>=24.10.0`
+
+## Install
+
+```sh
+bun add -D vite-plugin-agent-skills
+```
+
 ```ts
 import { agentSkills } from "vite-plugin-agent-skills";
 
@@ -77,6 +88,12 @@ interface AgentSkillsPluginOptions {
 Skill resources respect `.gitignore` by default. Secret-looking files and
 symlinks are rejected separately so credentials are not bundled just because a
 project forgot to ignore them.
+
+`validate` controls how `SKILL.md` name errors (length, casing, matching the
+directory name) are reported: `"strict"` (default) fails the build, `"warn"`
+logs and includes the skill in the manifest anyway. Structural frontmatter
+errors (missing YAML, invalid YAML, missing required fields) always fail the
+build regardless of `validate`.
 
 ## Examples
 

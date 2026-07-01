@@ -4,7 +4,7 @@
   "private": true,
   "description": "Bun monorepo for vite-plugin-agent-skills.",
   "license": "MIT",
-  "author": "Arya Labs, Inc.",
+  "author": "Saatvik Arya",
   "workspaces": [
     "packages/*",
     "examples/*"

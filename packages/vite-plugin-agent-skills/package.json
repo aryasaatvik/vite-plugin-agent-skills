@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-agent-skills",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Import Agent Skills from SKILL.md files in Vite.",
   "keywords": [
     "agent-skills",
@@ -8,11 +8,19 @@
     "vite",
     "vite-plugin"
   ],
+  "homepage": "https://github.com/aryasaatvik/vite-plugin-agent-skills#readme",
+  "bugs": "https://github.com/aryasaatvik/vite-plugin-agent-skills/issues",
   "license": "MIT",
-  "author": "Arya Labs, Inc.",
+  "author": "Saatvik Arya",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aryasaatvik/vite-plugin-agent-skills.git",
+    "directory": "packages/vite-plugin-agent-skills"
+  },
   "files": [
     "dist",
     "README.md",
+    "LICENSE",
     "package.json"
   ],
   "type": "module",
