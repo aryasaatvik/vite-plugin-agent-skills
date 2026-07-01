@@ -2,14 +2,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { build, type Rollup } from "vite";
+import { build, createServer, type Rollup, type ViteDevServer } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { agentSkills } from "../src/index";
 
 const fixtureRoots: string[] = [];
+const devServers: ViteDevServer[] = [];
 
 afterEach(async () => {
+  await Promise.all(devServers.splice(0).map((server) => server.close()));
   await Promise.all(
     fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -109,6 +111,159 @@ export const value = skill;`,
     });
   });
 
+  it("serves SKILL.md virtual modules in dev", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const baseUrl = await startFixtureServer(root);
+    const indexResponse = await fetch(new URL("/", baseUrl));
+    expect(indexResponse.ok).toBe(true);
+
+    const skillUrl = await virtualModuleUrl(baseUrl, "skill");
+    const skillResponse = await fetch(new URL(skillUrl, baseUrl));
+    expect(skillResponse.ok).toBe(true);
+    await expect(skillResponse.text()).resolves.toContain("bundle:review:");
+  });
+
+  it("serves markdown virtual modules in dev", async () => {
+    const root = await createFixtureRoot();
+    await writeFile(join(root, "note.md"), "# Hello\n");
+    await writeFile(
+      join(root, "entry.ts"),
+      `import note from "./note.md" with { type: "markdown" };
+export const value = note;`,
+    );
+
+    const baseUrl = await startFixtureServer(root);
+    const markdownUrl = await virtualModuleUrl(baseUrl, "markdown");
+    const markdownResponse = await fetch(new URL(markdownUrl, baseUrl));
+    expect(markdownResponse.ok).toBe(true);
+    await expect(markdownResponse.text()).resolves.toContain(JSON.stringify("# Hello\n"));
+  });
+
+  it("reflects SKILL.md edits in dev after invalidation", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const baseUrl = await startFixtureServer(root);
+    const skillUrl = await virtualModuleUrl(baseUrl, "skill");
+    await expect(fetch(new URL(skillUrl, baseUrl)).then((r) => r.text())).resolves.toContain(
+      "Review source changes.",
+    );
+
+    await writeFile(
+      join(root, "skills", "review", "SKILL.md"),
+      `---
+name: review
+description: Review updated changes.
+---
+
+Read the diff and report correctness issues.
+`,
+    );
+
+    const updated = await waitFor(async () => {
+      const text = await fetch(new URL(skillUrl, baseUrl)).then((r) => r.text());
+      if (text.includes("Review updated changes.")) return text;
+      return undefined;
+    });
+    expect(updated).toContain("Review updated changes.");
+  });
+
+  it("packages resources added to a skill directory while the dev server runs", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const baseUrl = await startFixtureServer(root);
+    const skillUrl = await virtualModuleUrl(baseUrl, "skill");
+    await expect(fetch(new URL(skillUrl, baseUrl)).then((r) => r.text())).resolves.not.toContain(
+      "references/extra.md",
+    );
+
+    await mkdir(join(root, "skills", "review", "references"), { recursive: true });
+    await writeFile(join(root, "skills", "review", "references", "extra.md"), "Extra guidance.");
+
+    const updated = await waitFor(async () => {
+      const text = await fetch(new URL(skillUrl, baseUrl)).then((r) => r.text());
+      if (text.includes("references/extra.md")) return text;
+      return undefined;
+    });
+    expect(updated).toContain("Extra guidance.");
+  });
+
+  it("imports SKILL.md as raw markdown when rejectSkillMarkdown is disabled", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import doc from "./skills/review/SKILL.md" with { type: "markdown" };
+export const value = doc;`,
+    );
+
+    const mod = await buildAndImport<{ value: string }>(root, {
+      markdown: { rejectSkillMarkdown: false },
+    });
+
+    expect(mod.value).toContain("name: review");
+  });
+
+  it("emits the default agents/skills runtime import", async () => {
+    const root = await createFixtureRoot();
+    await writeSkill(root);
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const output = await buildFixture(root, {}, ["agents/skills"]);
+    const chunk = output.find((item): item is Rollup.OutputChunk => item.type === "chunk");
+
+    expect(chunk?.code).toMatch(/import \{ fromManifest as \w+ \} from "agents\/skills"/);
+  });
+
+  it("builds with warnings instead of failing in warn-mode validation", async () => {
+    const root = await createFixtureRoot();
+    const skillDirectory = join(root, "skills", "review");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(
+      join(skillDirectory, "SKILL.md"),
+      `---
+name: summarize
+description: Summarize source changes.
+---
+
+Body
+`,
+    );
+    await writeFile(
+      join(root, "entry.ts"),
+      `import skill from "./skills/review/SKILL.md" with { type: "skill" };
+export const value = skill;`,
+    );
+
+    const mod = await buildAndImport<{ value: { skills: Array<{ name: string }> } }>(root, {
+      skill: { mode: "manifest", validate: "warn" },
+    });
+
+    expect(mod.value.skills[0]?.name).toBe("summarize");
+  });
+
   it("emits SkillSource modules through the configured runtime", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
@@ -170,6 +325,61 @@ Read the diff and report correctness issues.
   );
 }
 
+async function startFixtureServer(
+  root: string,
+  options: Parameters<typeof agentSkills>[0] = { skill: { mode: "manifest" } },
+): Promise<string> {
+  await writeFile(
+    join(root, "index.html"),
+    `<!doctype html><script type="module" src="/entry.ts"></script>`,
+  );
+  const server = await createServer({
+    root,
+    logLevel: "silent",
+    plugins: [agentSkills(options)],
+    server: {
+      host: "127.0.0.1",
+      port: 0,
+    },
+  });
+  devServers.push(server);
+  await server.listen();
+
+  const baseUrl = server.resolvedUrls?.local[0];
+  if (baseUrl === undefined) throw new Error("Vite dev server did not expose a local URL.");
+
+  // Load the HTML shell first so the module pipeline serves /entry.ts transformed.
+  const indexResponse = await fetch(new URL("/", baseUrl));
+  if (!indexResponse.ok) throw new Error("Dev server did not serve index.html.");
+  return baseUrl;
+}
+
+async function virtualModuleUrl(baseUrl: string, kind: "markdown" | "skill"): Promise<string> {
+  const entryResponse = await fetch(new URL("/entry.ts", baseUrl));
+  if (!entryResponse.ok) throw new Error("Dev server did not serve /entry.ts.");
+  const entryCode = await entryResponse.text();
+  const pattern = new RegExp(`"(?<url>/@id/__x00__vite-plugin-agent-skills:${kind}:[^"]+)"`);
+  const url = entryCode.match(pattern)?.groups?.url;
+  if (url === undefined) {
+    throw new Error(`Entry module does not reference a ${kind} virtual module: ${entryCode}`);
+  }
+  return url;
+}
+
+// Polls sequentially on purpose: each probe must observe the dev server after
+// the previous one settled.
+/* oxlint-disable no-await-in-loop */
+async function waitFor<T>(probe: () => Promise<T | undefined>, timeoutMs = 5_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await probe();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Timed out waiting for dev server state.");
+}
+/* oxlint-enable no-await-in-loop */
+
 async function buildAndImport<T>(
   root: string,
   options?: Parameters<typeof agentSkills>[0],
@@ -184,6 +394,7 @@ async function buildAndImport<T>(
 async function buildFixture(
   root: string,
   options: Parameters<typeof agentSkills>[0] = {},
+  external: Array<string | RegExp> = [],
 ): Promise<Rollup.OutputBundle> {
   const result = await build({
     root,
@@ -211,7 +422,7 @@ async function buildFixture(
         fileName: "entry",
       },
       rollupOptions: {
-        external: [/^node:/],
+        external: [/^node:/, ...external],
       },
     },
   });
