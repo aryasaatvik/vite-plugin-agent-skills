@@ -1,0 +1,44 @@
+{
+  "name": "vite-plugin-agent-skills",
+  "version": "0.0.0",
+  "description": "Import Agent Skills from SKILL.md files in Vite.",
+  "keywords": [
+    "agent-skills",
+    "skills",
+    "vite",
+    "vite-plugin"
+  ],
+  "license": "MIT",
+  "author": "Arya Labs, Inc.",
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.json --emitDeclarationOnly --noEmit false",
+    "dev": "tsdown --watch --ignore-watch .turbo",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --root ../.. packages/vite-plugin-agent-skills/tests"
+  },
+  "devDependencies": {
+    "vite": "^8.0.0"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=24.10.0"
+  }
+}
