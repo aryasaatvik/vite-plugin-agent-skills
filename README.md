@@ -55,6 +55,11 @@ For projects that import Markdown modules, add the package root types:
 The shipped declarations type `*.md` imports as `string` and `*/SKILL.md`
 imports as `AgentSkill`.
 
+## Acknowledgements
+
+This plugin is heavily inspired by [Flue](https://github.com/withastro/flue)
+and its approach to Vite-powered agent development.
+
 ## Requirements
 
 - Vite `^8.0.0`

@@ -146,6 +146,11 @@ build regardless of `validate`.
 The repo includes a Vite app in `examples/basic` that imports both plain
 Markdown and a `SKILL.md` file.
 
+## Acknowledgements
+
+This plugin is heavily inspired by [Flue](https://github.com/withastro/flue)
+and its approach to Vite-powered agent development.
+
 ## Development
 
 ```sh
