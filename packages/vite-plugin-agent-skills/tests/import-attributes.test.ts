@@ -82,7 +82,7 @@ export const value = skill;`,
     await expect(buildFixture(root)).rejects.toThrow(/must use an import attribute/);
   });
 
-  it("imports SKILL.md as a manifest in manifest mode", async () => {
+  it("imports SKILL.md as a single skill object", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
     await mkdir(join(root, "skills", "review", "references"), { recursive: true });
@@ -94,10 +94,11 @@ export const value = skill;`,
     );
 
     const mod = await buildAndImport<{
-      value: { skills: Array<{ name: string; resources: unknown[] }> };
-    }>(root, { skill: { mode: "manifest" } });
+      value: { id: string; name: string; description: string; resources: unknown[] };
+    }>(root);
 
-    expect(mod.value.skills[0]).toMatchObject({
+    expect(mod.value).toMatchObject({
+      id: expect.stringMatching(/^skill:review:/),
       name: "review",
       description: "Review source changes.",
       resources: [
@@ -127,7 +128,7 @@ export const value = skill;`,
     const skillUrl = await virtualModuleUrl(baseUrl, "skill");
     const skillResponse = await fetch(new URL(skillUrl, baseUrl));
     expect(skillResponse.ok).toBe(true);
-    await expect(skillResponse.text()).resolves.toContain("bundle:review:");
+    await expect(skillResponse.text()).resolves.toContain("skill:review:");
   });
 
   it("serves markdown virtual modules in dev", async () => {
@@ -204,7 +205,7 @@ export const value = skill;`,
       return undefined;
     });
     expect(updated).toContain("Extra guidance.");
-  });
+  }, 10_000);
 
   it("imports SKILL.md as raw markdown when rejectSkillMarkdown is disabled", async () => {
     const root = await createFixtureRoot();
@@ -222,7 +223,7 @@ export const value = doc;`,
     expect(mod.value).toContain("name: review");
   });
 
-  it("emits the default agents/skills runtime import", async () => {
+  it("does not emit a transform import by default", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
     await writeFile(
@@ -231,10 +232,11 @@ export const value = doc;`,
 export const value = skill;`,
     );
 
-    const output = await buildFixture(root, {}, ["agents/skills"]);
+    const output = await buildFixture(root);
     const chunk = output.find((item): item is Rollup.OutputChunk => item.type === "chunk");
 
-    expect(chunk?.code).toMatch(/import \{ fromManifest as \w+ \} from "agents\/skills"/);
+    expect(chunk?.code).toContain('id: "skill:review:');
+    expect(chunk?.code).not.toContain("transformSkill");
   });
 
   it("builds with warnings instead of failing in warn-mode validation", async () => {
@@ -257,20 +259,20 @@ Body
 export const value = skill;`,
     );
 
-    const mod = await buildAndImport<{ value: { skills: Array<{ name: string }> } }>(root, {
-      skill: { mode: "manifest", validate: "warn" },
+    const mod = await buildAndImport<{ value: { name: string } }>(root, {
+      skill: { validate: "warn" },
     });
 
-    expect(mod.value.skills[0]?.name).toBe("summarize");
+    expect(mod.value.name).toBe("summarize");
   });
 
-  it("emits SkillSource modules through the configured runtime", async () => {
+  it("wraps skill modules through the configured transform", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
     await writeFile(
-      join(root, "runtime.ts"),
-      `export function fromManifest(manifest) {
-  return { id: manifest.id, fingerprint: manifest.fingerprint, manifest };
+      join(root, "skill-transform.ts"),
+      `export function toPromptSkill(skill) {
+  return { id: skill.id, prompt: skill.body, skill };
 }`,
     );
     await writeFile(
@@ -280,14 +282,17 @@ export const value = skill;`,
     );
 
     const mod = await buildAndImport<{
-      value: { id: string; manifest: { skills: Array<{ name: string }> } };
-    }>(root, { skill: { runtime: { importFrom: "/runtime.ts" } } });
+      value: { id: string; prompt: string; skill: { name: string } };
+    }>(root, {
+      skill: { transform: { importFrom: "/skill-transform.ts", importName: "toPromptSkill" } },
+    });
 
-    expect(mod.value.id).toMatch(/^bundle:review:/);
-    expect(mod.value.manifest.skills[0]?.name).toBe("review");
+    expect(mod.value.id).toMatch(/^skill:review:/);
+    expect(mod.value.prompt).toBe("Read the diff and report correctness issues.");
+    expect(mod.value.skill.name).toBe("review");
   });
 
-  it("rejects invalid runtime fromManifest identifiers", async () => {
+  it("rejects invalid transform import identifiers", async () => {
     const root = await createFixtureRoot();
     await writeSkill(root);
     await writeFile(
@@ -298,9 +303,11 @@ export const value = skill;`,
 
     await expect(
       buildFixture(root, {
-        skill: { runtime: { importFrom: "/runtime.ts", fromManifest: "from-manifest" } },
+        skill: { transform: { importFrom: "/skill-transform.ts", importName: "transform-skill" } },
       }),
-    ).rejects.toThrow(/runtime\.fromManifest "from-manifest" is not a valid JavaScript identifier/);
+    ).rejects.toThrow(
+      /skill\.transform\.importName "transform-skill" is not a valid JavaScript identifier/,
+    );
   });
 });
 
@@ -327,7 +334,7 @@ Read the diff and report correctness issues.
 
 async function startFixtureServer(
   root: string,
-  options: Parameters<typeof agentSkills>[0] = { skill: { mode: "manifest" } },
+  options: Parameters<typeof agentSkills>[0] = {},
 ): Promise<string> {
   await writeFile(
     join(root, "index.html"),

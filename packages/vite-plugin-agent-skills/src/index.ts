@@ -5,6 +5,7 @@ import { prefixRegex } from "@rolldown/pluginutils";
 import MagicString from "magic-string";
 import { normalizePath, parseSync, type EnvironmentModuleNode, type Plugin } from "vite";
 
+import { buildAgentSkill, skillModuleCode } from "./agent-skill";
 import {
   assertNoDynamicSkillImports,
   collectAttributedImports,
@@ -16,7 +17,6 @@ import {
 } from "./attributed-imports";
 import { markdownImportConfig, type MarkdownImportOptions } from "./markdown-import";
 import { skillImportConfig, type SkillImportOptions } from "./skill-import";
-import { buildSkillManifest, skillModuleCode } from "./skill-manifest";
 import {
   decodeSkillModuleId,
   encodedSkillModulePrefix,
@@ -30,7 +30,7 @@ export interface AgentSkillsPluginOptions {
 }
 
 export type { MarkdownImportOptions } from "./markdown-import";
-export type { SkillManifest, SkillManifestEntry, SkillManifestResource } from "./skill-manifest";
+export type { AgentSkill, AgentSkillResource } from "./agent-skill";
 export type { SkillImportOptions } from "./skill-import";
 export type { SkillDirectoryFile, SkillResourceOptions } from "./skill-directory";
 
@@ -42,6 +42,7 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
   const markdown = markdownImportConfig(options.markdown);
   const skill = skillImportConfig(options.skill);
   const skillModulesByDirectory = new Map<string, string>();
+  let devWatcher: { add: (path: string) => unknown } | undefined;
   let viteRoot = "";
 
   return {
@@ -49,6 +50,9 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
     enforce: "pre",
     configResolved(config) {
       viteRoot = config.root;
+    },
+    configureServer(server) {
+      devWatcher = server.watcher;
     },
     transform: {
       filter: {
@@ -153,18 +157,17 @@ export function agentSkills(options: AgentSkillsPluginOptions = {}): Plugin {
         const skillDirectory = normalizePath(path.dirname(skillPath));
         skillModulesByDirectory.set(skillDirectory, id);
         this.addWatchFile(skillPath);
-        const manifest = await buildSkillManifest({
+        devWatcher?.add(skillDirectory);
+        const skillArtifact = await buildAgentSkill({
           skillPath,
           viteRoot,
           config: skill,
           warn: (message) => this.warn(message),
         });
-        for (const entry of manifest.skills) {
-          for (const resource of entry.resources) {
-            this.addWatchFile(normalizePath(path.join(skillDirectory, resource.path)));
-          }
+        for (const resource of skillArtifact.resources) {
+          this.addWatchFile(normalizePath(path.join(skillDirectory, resource.path)));
         }
-        return skillModuleCode(manifest, skill);
+        return skillModuleCode(skillArtifact, skill);
       },
     },
   };

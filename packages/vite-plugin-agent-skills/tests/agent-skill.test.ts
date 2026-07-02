@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { buildAgentSkill, skillModuleCode, type AgentSkill } from "../src/agent-skill";
 import { skillImportConfig } from "../src/skill-import";
-import { buildSkillManifest, skillModuleCode, type SkillManifest } from "../src/skill-manifest";
 
 const config = skillImportConfig(true);
 if (config === undefined) throw new Error("skill imports should be enabled by default");
@@ -21,7 +21,7 @@ async function createSkillFixture(prefix: string): Promise<{ root: string; skill
   return { root, skillPath: join(skillDirectory, "SKILL.md") };
 }
 
-describe("buildSkillManifest", () => {
+describe("buildAgentSkill", () => {
   it("classifies resources by directory and encodes binary content as base64", async () => {
     const { root, skillPath } = await createSkillFixture("manifest-resources-");
     const skillDirectory = join(root, "skills", "review");
@@ -36,9 +36,9 @@ describe("buildSkillManifest", () => {
     );
     await writeFile(join(skillDirectory, "checklist.md"), "Checklist");
 
-    const manifest = await buildSkillManifest({ skillPath, viteRoot: root, config });
+    const skill = await buildAgentSkill({ skillPath, viteRoot: root, config });
 
-    expect(manifest.skills[0]?.resources).toEqual([
+    expect(skill.resources).toEqual([
       {
         path: "assets/logo.png",
         kind: "asset",
@@ -78,9 +78,9 @@ describe("buildSkillManifest", () => {
     const { root, skillPath } = await createSkillFixture("manifest-no-extension-");
     await writeFile(join(root, "skills", "review", "LICENSE"), "MIT");
 
-    const manifest = await buildSkillManifest({ skillPath, viteRoot: root, config });
+    const skill = await buildAgentSkill({ skillPath, viteRoot: root, config });
 
-    expect(manifest.skills[0]?.resources).toEqual([
+    expect(skill.resources).toEqual([
       {
         path: "LICENSE",
         kind: "file",
@@ -96,63 +96,70 @@ describe("buildSkillManifest", () => {
     const first = await createSkillFixture("manifest-fingerprint-a-");
     const second = await createSkillFixture("manifest-fingerprint-b-");
 
-    const firstManifest = await buildSkillManifest({
+    const firstManifest = await buildAgentSkill({
       skillPath: first.skillPath,
       viteRoot: first.root,
       config,
     });
-    const secondManifest = await buildSkillManifest({
+    const secondManifest = await buildAgentSkill({
       skillPath: second.skillPath,
       viteRoot: second.root,
       config,
     });
 
     expect(firstManifest.fingerprint).toBe(secondManifest.fingerprint);
-    expect(firstManifest.id).toBe(`bundle:review:${firstManifest.fingerprint.slice(0, 16)}`);
+    expect(firstManifest.id).toBe(`skill:review:${firstManifest.fingerprint.slice(0, 16)}`);
   });
 
   it("changes the fingerprint when skill content changes", async () => {
     const { root, skillPath } = await createSkillFixture("manifest-fingerprint-drift-");
-    const before = await buildSkillManifest({ skillPath, viteRoot: root, config });
+    const before = await buildAgentSkill({ skillPath, viteRoot: root, config });
 
     await writeFile(
       skillPath,
       "---\nname: review\ndescription: Review source changes carefully.\n---\n\nBody\n",
     );
-    const after = await buildSkillManifest({ skillPath, viteRoot: root, config });
+    const after = await buildAgentSkill({ skillPath, viteRoot: root, config });
 
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 });
 
 describe("skillModuleCode", () => {
-  const manifest: SkillManifest = {
-    id: "bundle:review:0123456789abcdef",
+  const skill: AgentSkill = {
+    id: "skill:review:0123456789abcdef",
     fingerprint: "0123456789abcdef",
-    skills: [],
+    name: "review",
+    description: "Review source changes.",
+    body: "Body",
+    resources: [],
   };
 
-  it("emits a plain manifest module in manifest mode", () => {
-    const code = skillModuleCode(manifest, { ...config, mode: "manifest" });
+  it("emits a plain skill module by default", () => {
+    const code = skillModuleCode(skill, config);
 
-    expect(code).toContain(`const manifest = ${JSON.stringify(manifest)};`);
-    expect(code).toContain("export default manifest;");
-    expect(code).not.toContain("fromManifest");
+    expect(code).toContain(`const skill = ${JSON.stringify(skill)};`);
+    expect(code).toContain("export default skill;");
+    expect(code).not.toContain("transformSkill");
   });
 
-  it("emits a runtime-wrapped module in skillSource mode", () => {
-    const code = skillModuleCode(manifest, config);
-
-    expect(code).toContain('import { fromManifest as fromManifest } from "agents/skills";');
-    expect(code).toContain("export default fromManifest(manifest);");
-  });
-
-  it("renames custom runtime exports onto fromManifest", () => {
-    const code = skillModuleCode(manifest, {
+  it("emits a transform-wrapped module when configured", () => {
+    const code = skillModuleCode(skill, {
       ...config,
-      runtime: { importFrom: "./runtime", fromManifest: "hydrateSkill" },
+      transform: { importFrom: "./skill-transform", importName: "toPromptSkill" },
     });
 
-    expect(code).toContain('import { hydrateSkill as fromManifest } from "./runtime";');
+    expect(code).toContain('import { toPromptSkill as transformSkill } from "./skill-transform";');
+    expect(code).toContain(`const skill = ${JSON.stringify(skill)};`);
+    expect(code).toContain("export default transformSkill(skill);");
+  });
+
+  it("defaults transform imports to transformSkill", () => {
+    const code = skillModuleCode(skill, {
+      ...config,
+      transform: { importFrom: "./skill-transform", importName: "transformSkill" },
+    });
+
+    expect(code).toContain('import { transformSkill as transformSkill } from "./skill-transform";');
   });
 });

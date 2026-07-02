@@ -8,7 +8,7 @@ import { collectSkillDirectoryFiles, type SkillDirectoryFile } from "./skill-dir
 import { parseSkillMarkdown } from "./skill-frontmatter";
 import type { SkillImportConfig } from "./skill-import";
 
-export interface SkillManifestResource {
+export interface AgentSkillResource {
   path: string;
   kind: "reference" | "script" | "asset" | "file";
   size: number;
@@ -17,7 +17,9 @@ export interface SkillManifestResource {
   content: string;
 }
 
-export interface SkillManifestEntry {
+export interface AgentSkill {
+  id: string;
+  fingerprint: string;
   name: string;
   description: string;
   body: string;
@@ -25,16 +27,10 @@ export interface SkillManifestEntry {
   license?: string;
   allowedTools?: string;
   metadata?: Record<string, unknown>;
-  resources: SkillManifestResource[];
+  resources: AgentSkillResource[];
 }
 
-export interface SkillManifest {
-  id: string;
-  fingerprint: string;
-  skills: SkillManifestEntry[];
-}
-
-export interface BuildSkillManifestOptions {
+export interface BuildAgentSkillOptions {
   skillPath: string;
   viteRoot: string;
   config: SkillImportConfig;
@@ -82,12 +78,12 @@ const mimeTypes = new Map([
   [".yml", "application/yaml"],
 ]);
 
-export async function buildSkillManifest({
+export async function buildAgentSkill({
   skillPath,
   viteRoot,
   config,
   warn,
-}: BuildSkillManifestOptions): Promise<SkillManifest> {
+}: BuildAgentSkillOptions): Promise<AgentSkill> {
   const skillDirectory = path.dirname(skillPath);
   const rawContent = await fs.readFile(skillPath, "utf8");
   const parsed = parseSkillMarkdown(rawContent, {
@@ -102,9 +98,9 @@ export async function buildSkillManifest({
     resources: config.resources,
     warn,
   });
-  const resources = await Promise.all(files.map(skillManifestResource));
+  const resources = await Promise.all(files.map(agentSkillResource));
 
-  const entry: SkillManifestEntry = {
+  const entry = {
     name: parsed.name,
     description: parsed.description,
     body: parsed.body,
@@ -114,33 +110,35 @@ export async function buildSkillManifest({
     metadata: parsed.metadata,
     resources,
   };
-  const fingerprint = skillFingerprint(entry);
+  const fingerprint = agentSkillFingerprint(entry);
 
   return {
-    id: `bundle:${parsed.name}:${fingerprint.slice(0, 16)}`,
+    id: `skill:${parsed.name}:${fingerprint.slice(0, 16)}`,
     fingerprint,
-    skills: [entry],
+    ...entry,
   };
 }
 
-export function skillModuleCode(manifest: SkillManifest, config: SkillImportConfig): string {
-  const manifestCode = `const manifest = ${JSON.stringify(manifest)};`;
-  if (config.mode === "manifest") return `${manifestCode}\nexport default manifest;\n`;
+export function skillModuleCode(skill: AgentSkill, config: SkillImportConfig): string {
+  const skillCode = `const skill = ${JSON.stringify(skill)};`;
+  if (!config.transform) return `${skillCode}\nexport default skill;\n`;
 
-  const fromManifest = config.runtime.fromManifest;
-  if (!isJavaScriptIdentifier(fromManifest)) {
-    throw new Error(`runtime.fromManifest "${fromManifest}" is not a valid JavaScript identifier.`);
+  const transform = config.transform.importName;
+  if (!isJavaScriptIdentifier(transform)) {
+    throw new Error(
+      `skill.transform.importName "${transform}" is not a valid JavaScript identifier.`,
+    );
   }
 
   return [
-    `import { ${fromManifest} as fromManifest } from ${JSON.stringify(config.runtime.importFrom)};`,
-    manifestCode,
-    "export default fromManifest(manifest);",
+    `import { ${transform} as transformSkill } from ${JSON.stringify(config.transform.importFrom)};`,
+    skillCode,
+    "export default transformSkill(skill);",
     "",
   ].join("\n");
 }
 
-async function skillManifestResource(file: SkillDirectoryFile): Promise<SkillManifestResource> {
+async function agentSkillResource(file: SkillDirectoryFile): Promise<AgentSkillResource> {
   const bytes = await fs.readFile(file.absolutePath);
   const encoding = resourceEncoding(file.path);
   return {
@@ -153,7 +151,7 @@ async function skillManifestResource(file: SkillDirectoryFile): Promise<SkillMan
   };
 }
 
-function skillFingerprint(entry: SkillManifestEntry): string {
+function agentSkillFingerprint(entry: Omit<AgentSkill, "id" | "fingerprint">): string {
   const hash = createHash("sha256");
   hash.update(JSON.stringify(entry));
   return hash.digest("hex");

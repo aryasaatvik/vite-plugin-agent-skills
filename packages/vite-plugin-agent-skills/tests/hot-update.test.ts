@@ -34,7 +34,7 @@ describe("hotUpdate", () => {
     );
     await writeFile(join(skillDirectory, "references", "guide.md"), "Guide");
 
-    const plugin = agentSkills({ skill: { mode: "manifest" } });
+    const plugin = agentSkills();
     (plugin.configResolved as (config: { root: string }) => void)({ root });
 
     const moduleId = `${skillModulePrefix}${join(skillDirectory, "SKILL.md")}`;
@@ -67,7 +67,7 @@ describe("hotUpdate", () => {
 
   it("ignores changes outside tracked skill directories", async () => {
     const root = await mkdtemp(join(tmpdir(), "hot-update-miss-"));
-    const plugin = agentSkills({ skill: { mode: "manifest" } });
+    const plugin = agentSkills();
     (plugin.configResolved as (config: { root: string }) => void)({ root });
 
     const hotUpdate = plugin.hotUpdate as (

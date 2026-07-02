@@ -1,13 +1,5 @@
-import type { SkillManifest } from "vite-plugin-agent-skills";
-
 import releasePrompt from "./prompts/release-note.md" with { type: "markdown" };
 import releaseSkill from "./skills/release-writer/SKILL.md" with { type: "skill" };
-
-const releaseManifest: SkillManifest = releaseSkill;
-const skill = releaseManifest.skills[0];
-if (skill === undefined) {
-  throw new Error("Expected the release writer skill manifest to include one skill.");
-}
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (app === null) {
@@ -15,12 +7,12 @@ if (app === null) {
 }
 
 app.innerHTML = `
-  <h1>${skill.name}</h1>
-  <p>${skill.description}</p>
+  <h1>${releaseSkill.name}</h1>
+  <p>${releaseSkill.description}</p>
   <h2>Imported Markdown</h2>
   <pre>${escapeHtml(releasePrompt)}</pre>
-  <h2>Skill Manifest</h2>
-  <pre>${escapeHtml(JSON.stringify(releaseManifest, null, 2))}</pre>
+  <h2>Imported Skill</h2>
+  <pre>${escapeHtml(JSON.stringify(releaseSkill, null, 2))}</pre>
 `;
 
 function escapeHtml(value: string): string {

@@ -6,10 +6,9 @@ import {
 
 export interface SkillImportOptions {
   attribute?: string;
-  mode?: "skillSource" | "manifest";
-  runtime?: {
-    importFrom?: string;
-    fromManifest?: string;
+  transform?: {
+    importFrom: string;
+    importName?: string;
   };
   validate?: "strict" | "warn";
   resources?: SkillResourceOptions;
@@ -17,10 +16,9 @@ export interface SkillImportOptions {
 
 export interface SkillImportConfig {
   attribute: string;
-  mode: "skillSource" | "manifest";
-  runtime: {
+  transform?: {
     importFrom: string;
-    fromManifest: string;
+    importName: string;
   };
   validate: "strict" | "warn";
   resources: SkillResourceConfig;
@@ -34,11 +32,12 @@ export function skillImportConfig(
 
   return {
     attribute: configured.attribute ?? "skill",
-    mode: configured.mode ?? "skillSource",
-    runtime: {
-      importFrom: configured.runtime?.importFrom ?? "agents/skills",
-      fromManifest: configured.runtime?.fromManifest ?? "fromManifest",
-    },
+    transform: configured.transform
+      ? {
+          importFrom: configured.transform.importFrom,
+          importName: configured.transform.importName ?? "transformSkill",
+        }
+      : undefined,
     validate: configured.validate ?? "strict",
     resources: skillResourceConfig(configured.resources),
   };

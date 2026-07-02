@@ -3,6 +3,18 @@
 All notable changes to this package are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Breaking: `with { type: "skill" }` imports now export a single serializable
+  `AgentSkill` by default instead of a manifest bundle or Agents SDK runtime
+  value.
+- Breaking: replaced `skill.mode` and `skill.runtime` with `skill.transform`,
+  which passes the generated `AgentSkill` through a configured function before
+  export.
+- `*/SKILL.md` ambient module declarations now type imports as `AgentSkill`.
+
 ## 0.1.0
 
 Initial public release.

@@ -13,13 +13,9 @@ describe("import config", () => {
   });
 
   it("keeps skill defaults local to skill imports", () => {
-    expect(skillImportConfig({ mode: "manifest" })).toEqual({
+    expect(skillImportConfig({})).toEqual({
       attribute: "skill",
-      mode: "manifest",
-      runtime: {
-        importFrom: "agents/skills",
-        fromManifest: "fromManifest",
-      },
+      transform: undefined,
       validate: "strict",
       resources: {
         gitignore: true,
@@ -32,5 +28,14 @@ describe("import config", () => {
       },
     });
     expect(skillImportConfig(false)).toBeUndefined();
+  });
+
+  it("normalizes skill transforms", () => {
+    expect(skillImportConfig({ transform: { importFrom: "/skill-transform.ts" } })).toMatchObject({
+      transform: {
+        importFrom: "/skill-transform.ts",
+        importName: "transformSkill",
+      },
+    });
   });
 });

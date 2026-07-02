@@ -18,6 +18,10 @@ export default {
 ```ts
 import instructions from "./prompts/editor.md" with { type: "markdown" };
 import reviewSkill from "./skills/review/SKILL.md" with { type: "skill" };
+
+reviewSkill.body;
+reviewSkill.resources;
+reviewSkill.fingerprint;
 ```
 
 ## What It Does
@@ -30,11 +34,11 @@ import reviewSkill from "./skills/review/SKILL.md" with { type: "skill" };
 
 ## Packages
 
-| Path                                                                   | Purpose                                                          |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| [packages/vite-plugin-agent-skills](packages/vite-plugin-agent-skills) | Published npm package, usage docs, config reference, changelog   |
-| [examples/basic](examples/basic)                                       | Minimal Vite app that imports Markdown and a `SKILL.md` manifest |
-| [docs/release-checklist.md](docs/release-checklist.md)                 | Release validation checklist                                     |
+| Path                                                                   | Purpose                                                        |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [packages/vite-plugin-agent-skills](packages/vite-plugin-agent-skills) | Published npm package, usage docs, config reference, changelog |
+| [examples/basic](examples/basic)                                       | Minimal Vite app that imports Markdown and a `SKILL.md` skill  |
+| [docs/release-checklist.md](docs/release-checklist.md)                 | Release validation checklist                                   |
 
 ## TypeScript Setup
 
@@ -49,7 +53,7 @@ For projects that import Markdown modules, add the package root types:
 ```
 
 The shipped declarations type `*.md` imports as `string` and `*/SKILL.md`
-imports as `SkillManifest`, matching `mode: "manifest"`.
+imports as `AgentSkill`.
 
 ## Requirements
 

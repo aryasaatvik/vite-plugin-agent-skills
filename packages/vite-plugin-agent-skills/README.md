@@ -35,21 +35,54 @@ Import an Agent Skill from its canonical `SKILL.md` file:
 ```ts
 import reviewSkill from "./skills/review/SKILL.md" with { type: "skill" };
 
-export function getSkills() {
-  return [reviewSkill];
+reviewSkill.name;
+reviewSkill.description;
+reviewSkill.body;
+reviewSkill.resources;
+reviewSkill.fingerprint;
+```
+
+Skill imports export a serializable `AgentSkill`:
+
+```ts
+interface AgentSkill {
+  id: string;
+  fingerprint: string;
+  name: string;
+  description: string;
+  body: string;
+  allowedTools?: string;
+  compatibility?: string;
+  license?: string;
+  metadata?: Record<string, unknown>;
+  resources: AgentSkillResource[];
 }
 ```
 
-By default, skill imports emit an Agents SDK-compatible `SkillSource` using
-`fromManifest` from `agents/skills`. Use `mode: "manifest"` when testing or when
-another runtime wants the serializable manifest directly.
+Use `skill.transform` when an app or runtime wants a different export shape:
 
 ```ts
 agentSkills({
   skill: {
-    mode: "manifest",
+    transform: {
+      importFrom: "/src/skill-transform.ts",
+      importName: "toPromptSkill",
+    },
   },
 });
+```
+
+The generated module imports `toPromptSkill`, passes it the generated
+`AgentSkill`, and exports the return value.
+
+```ts
+export function toPromptSkill(skill: AgentSkill) {
+  return {
+    name: skill.name,
+    prompt: skill.body,
+    resources: skill.resources,
+  };
+}
 ```
 
 Add the package root types to TypeScript projects that import Markdown modules:
@@ -63,10 +96,8 @@ Add the package root types to TypeScript projects that import Markdown modules:
 ```
 
 The shipped module declarations type `*.md` imports as `string` and
-`*/SKILL.md` imports as `SkillManifest`, matching `mode: "manifest"`.
-Default `skillSource` mode can return a runtime-specific type from
-`runtime.fromManifest`, so projects using that mode should type that runtime
-boundary explicitly.
+`*/SKILL.md` imports as `AgentSkill`. Projects using `skill.transform` can add a
+project-local module declaration when they want the transformed export type.
 
 ## Config
 
@@ -82,10 +113,9 @@ interface AgentSkillsPluginOptions {
     | boolean
     | {
         attribute?: string;
-        mode?: "skillSource" | "manifest";
-        runtime?: {
-          importFrom?: string;
-          fromManifest?: string;
+        transform?: {
+          importFrom: string;
+          importName?: string;
         };
         validate?: "strict" | "warn";
         resources?: {
@@ -107,16 +137,14 @@ project forgot to ignore them.
 
 `validate` controls how `SKILL.md` name errors (length, casing, matching the
 directory name) are reported: `"strict"` (default) fails the build, `"warn"`
-logs and includes the skill in the manifest anyway. Structural frontmatter
+logs and includes the skill anyway. Structural frontmatter
 errors (missing YAML, invalid YAML, missing required fields) always fail the
 build regardless of `validate`.
 
 ## Examples
 
 The repo includes a Vite app in `examples/basic` that imports both plain
-Markdown and a `SKILL.md` manifest. It configures the plugin in
-`mode: "manifest"` so the example can build without an Agents SDK runtime
-dependency.
+Markdown and a `SKILL.md` file.
 
 ## Development
 

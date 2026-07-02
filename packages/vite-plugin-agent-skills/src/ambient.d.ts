@@ -1,6 +1,6 @@
 declare module "*/SKILL.md" {
-  const manifest: import("./skill-manifest").SkillManifest;
-  export default manifest;
+  const skill: import("./agent-skill").AgentSkill;
+  export default skill;
 }
 
 declare module "*.md" {
