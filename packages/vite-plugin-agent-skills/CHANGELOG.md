@@ -3,17 +3,27 @@
 All notable changes to this package are documented here. Format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.2.0
+
+API cleanup release for skill imports.
+
+### Breaking Changes
+
+- `with { type: "skill" }` imports now export a single serializable
+  `AgentSkill` by default instead of a manifest bundle or Agents SDK runtime
+  value.
+- Replaced `skill.mode` and `skill.runtime` with `skill.transform`, which passes
+  the generated `AgentSkill` through a configured function before export.
 
 ### Changed
 
-- Breaking: `with { type: "skill" }` imports now export a single serializable
-  `AgentSkill` by default instead of a manifest bundle or Agents SDK runtime
-  value.
-- Breaking: replaced `skill.mode` and `skill.runtime` with `skill.transform`,
-  which passes the generated `AgentSkill` through a configured function before
-  export.
 - `*/SKILL.md` ambient module declarations now type imports as `AgentSkill`.
+- Renamed the internal manifest implementation to `agent-skill`.
+
+### Fixed
+
+- New files added inside skill directories are now watched through Vite's dev
+  server watcher, so resource additions invalidate skill modules correctly.
 
 ## 0.1.0
 

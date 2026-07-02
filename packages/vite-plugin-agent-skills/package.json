@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-agent-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Import Agent Skills from SKILL.md files in Vite.",
   "keywords": [
     "agent-skills",
